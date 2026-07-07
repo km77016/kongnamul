@@ -9,28 +9,35 @@
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg:#FAFAF5; --bg-panel:#FFFFFF; --bg-panel-alt:#F1F9F1; --bg-input:#F6F8F2;
-    --border:#E6E9DF; --border-soft:#EFF2E9;
-    --text:#232823; --text-muted:#767F70; --text-dim:#A7AE9F;
-    --mint:#00B287; --mint-line:#8FE0C4; --mint-dim:#E1F7EE;
-    --lime:#8CC63F; --lime-line:#C9E79A; --lime-dim:#EEF6DC;
-    --amber:#F5B400; --amber-line:#FFE08A; --amber-dim:#FFF4D6;
-    --red:#EF5D72; --red-line:#F7B9C4; --red-dim:#FDE9EC;
+    --bg:#FBF9F1; --bg-panel:#FFFFFF; --bg-panel-warm:#FFFDF8; --bg-input:#F6F5EC;
+    --border:#EAE4D3; --border-soft:#F2EEE1;
+    --ink:#212B1E; --ink-muted:#71795F; --ink-faint:#A9AD94;
+    --mint:#0E9E72; --mint-deep:#0A7857; --mint-line:#93DDBC; --mint-tint:#E4F7ED;
+    --lime:#93C23A; --lime-line:#D0E9A0; --lime-tint:#F2F8E0;
+    --bean:#EFB116; --bean-line:#F8DA84; --bean-tint:#FDF2D4; --bean-deep:#9A6B00;
+    --red:#E15C71; --red-line:#F5B9C4; --red-tint:#FCE9EC;
+    --shadow-xs:0 1px 2px rgba(33,43,30,0.05);
+    --shadow-sm:0 3px 12px rgba(33,43,30,0.06);
+    --shadow-lift:0 16px 36px -12px rgba(33,43,30,0.18);
     --font-mono:'JetBrains Mono','SF Mono',monospace; --font-body:'Pretendard',-apple-system,sans-serif;
   }
   *{box-sizing:border-box; margin:0; padding:0;}
-  body{ background:var(--bg); color:var(--text); font-family:var(--font-body); -webkit-font-smoothing:antialiased; padding-bottom:60px;}
+  body{ background:var(--bg); color:var(--ink); font-family:var(--font-body); -webkit-font-smoothing:antialiased; padding-bottom:60px;}
+  .view{ animation:viewIn .28s cubic-bezier(.16,1,.3,1); }
+  @keyframes viewIn{ from{ opacity:0; transform:translateY(5px);} to{ opacity:1; transform:translateY(0);} }
+  @media (prefers-reduced-motion: reduce){ .view{ animation:none; } }
 
-  .topbar{ position:sticky; top:0; z-index:20; background:rgba(250,250,245,0.95); backdrop-filter:blur(8px);
+  .topbar{ position:sticky; top:0; z-index:20; background:rgba(251,249,241,0.9); backdrop-filter:blur(10px);
     border-bottom:1px solid var(--border); display:flex; align-items:center; gap:14px; padding:12px 20px; flex-wrap:wrap; }
-  .logo{ font-weight:800; font-size:16px; display:flex; align-items:center; gap:6px; }
-  .logo .badge{ font-size:10px; font-weight:700; color:#B8860B; background:var(--amber-dim); border:1px solid var(--amber-line); padding:3px 8px; border-radius:10px; margin-left:4px; }
+  .logo{ font-weight:800; font-size:16px; display:flex; align-items:center; gap:7px; }
+  .logo .badge{ font-size:10px; font-weight:700; color:var(--bean-deep); background:var(--bean-tint); border:1px solid var(--bean-line); padding:3px 8px; border-radius:10px; margin-left:4px; }
   .nav{ display:flex; gap:4px; flex:1; flex-wrap:wrap; }
-  .navbtn{ background:transparent; border:1px solid transparent; color:var(--text-muted); font-size:12.5px; font-weight:600; padding:8px 12px; border-radius:20px; cursor:pointer; }
-  .navbtn:hover{ color:var(--text); background:var(--bg-input); }
-  .navbtn.active{ color:#046A50; background:var(--mint-dim); border-color:var(--mint-line); }
-  .who{ font-size:12px; color:var(--text-muted); font-family:var(--font-mono); }
-  .logout-btn{ font-size:11px; color:var(--text-muted); background:var(--bg-panel); border:1px solid var(--border); padding:6px 10px; border-radius:20px; cursor:pointer; }
+  .navbtn{ background:transparent; border:1px solid transparent; color:var(--ink-muted); font-size:12.5px; font-weight:600; padding:8px 12px; border-radius:20px; cursor:pointer; transition:.15s; }
+  .navbtn:hover{ color:var(--ink); background:var(--bg-input); }
+  .navbtn.active{ color:var(--mint-deep); background:var(--mint-tint); border-color:var(--mint-line); }
+  .who{ font-size:12px; color:var(--ink-muted); font-family:var(--font-mono); }
+  .logout-btn{ font-size:11px; color:var(--ink-muted); background:var(--bg-panel); border:1px solid var(--border); padding:6px 10px; border-radius:20px; cursor:pointer; transition:.15s; }
+  .logout-btn:hover{ border-color:var(--red-line); color:var(--red); }
 
   @media(max-width:820px){
     .topbar{ flex-wrap:nowrap; padding:10px 12px; gap:8px; }
@@ -51,72 +58,96 @@
 
   .wrap{ max-width:1100px; margin:0 auto; padding:20px 16px 0; }
   .view{ display:none; } .view.active{ display:block; }
-  .pagehead h1{ font-size:18px; font-weight:800; } .pagehead p{ font-size:12px; color:var(--text-muted); margin-top:4px; }
+  .pagehead h1{ font-size:18px; font-weight:800; } .pagehead p{ font-size:12px; color:var(--ink-muted); margin-top:4px; }
 
-  .panel{ background:var(--bg-panel); border:1px solid var(--border); border-radius:16px; padding:18px; margin-bottom:14px; }
-  .panel-title{ font-size:11px; font-weight:700; color:var(--text-muted); letter-spacing:.06em; text-transform:uppercase; margin-bottom:14px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px; }
+  .panel{ background:var(--bg-panel); border:1px solid var(--border); border-radius:16px; padding:18px; margin-bottom:14px; box-shadow:var(--shadow-xs); }
+  .panel-title{ font-size:11px; font-weight:700; color:var(--ink-muted); letter-spacing:.06em; text-transform:uppercase; margin-bottom:14px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px; }
 
   .stat-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
   @media(max-width:700px){ .stat-grid{ grid-template-columns:repeat(2,1fr); } }
-  .stat-card{ background:var(--bg-input); border:1px solid var(--border); border-radius:12px; padding:14px; }
-  .stat-card .l{ font-size:11px; color:var(--text-muted); } .stat-card .v{ font-family:var(--font-mono); font-size:19px; font-weight:800; color:var(--mint); margin-top:6px; }
+  .stat-card{ background:var(--bg-input); border:1px solid var(--border); border-radius:12px; padding:14px; transition:transform .15s; }
+  .stat-card:hover{ transform:translateY(-1px); }
+  .stat-card .l{ font-size:11px; color:var(--ink-muted); } .stat-card .v{ font-family:var(--font-mono); font-size:19px; font-weight:800; color:var(--mint); margin-top:6px; }
   .stat-card.neg .v{ color:var(--red); }
 
   table{ width:100%; border-collapse:collapse; font-size:12.5px; }
-  th,td{ text-align:left; padding:9px 8px; border-bottom:1px solid var(--border-soft); white-space:nowrap; }
-  th{ color:var(--text-muted); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.03em; }
+  th,td{ text-align:left; padding:10px 8px; border-bottom:1px solid var(--border-soft); white-space:nowrap; }
+  th{ color:var(--ink-muted); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.03em; }
+  tbody tr{ transition:background .12s; }
+  tbody tr:hover{ background:var(--bg-input); }
   .table-wrap{ overflow-x:auto; }
   .mono{ font-family:var(--font-mono); }
-  .pill{ font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:10px; }
-  .pill.pending{ background:var(--amber-dim); color:#B8860B; }
-  .pill.approved, .pill.paid{ background:var(--mint-dim); color:#046A50; }
-  .pill.rejected, .pill.cancelled{ background:var(--red-dim); color:#B23A4C; }
-  .pill.submitted{ background:var(--bg-input); color:var(--text-muted); border:1px solid var(--border); }
-  .pill.received, .pill.inspected{ background:var(--amber-dim); color:#B8860B; }
+  .pill{ font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:10px; }
+  .pill.pending{ background:var(--bean-tint); color:var(--bean-deep); }
+  .pill.approved, .pill.paid{ background:var(--mint-tint); color:var(--mint-deep); }
+  .pill.rejected, .pill.cancelled{ background:var(--red-tint); color:#B23A4C; }
+  .pill.submitted{ background:var(--bg-input); color:var(--ink-muted); border:1px solid var(--border); }
+  .pill.received, .pill.inspected{ background:var(--bean-tint); color:var(--bean-deep); }
 
-  .btn{ font-size:11.5px; font-weight:600; padding:6px 10px; border-radius:8px; border:1px solid var(--border); background:var(--bg-panel); color:var(--text); cursor:pointer; }
-  .btn:hover{ border-color:var(--mint-line); }
-  .btn.mint{ background:var(--mint-dim); border-color:var(--mint-line); color:#046A50; }
-  .btn.red{ background:var(--red-dim); border-color:var(--red-line); color:#B23A4C; }
+  .btn{ font-size:11.5px; font-weight:600; padding:6px 10px; border-radius:8px; border:1px solid var(--border); background:var(--bg-panel); color:var(--ink); cursor:pointer; transition:.15s; }
+  .btn:hover{ border-color:var(--mint-line); transform:translateY(-1px); box-shadow:var(--shadow-xs); }
+  .btn:active{ transform:translateY(0) scale(.98); }
+  .btn.mint{ background:var(--mint-tint); border-color:var(--mint-line); color:var(--mint-deep); }
+  .btn.red{ background:var(--red-tint); border-color:var(--red-line); color:#B23A4C; }
   .btn-row{ display:flex; gap:6px; flex-wrap:wrap; }
 
   .filter-tabs{ display:flex; gap:6px; margin-bottom:14px; flex-wrap:wrap; }
-  .filter-tabs button{ font-size:11.5px; font-weight:600; padding:6px 12px; border-radius:16px; border:1px solid var(--border); background:var(--bg-panel); color:var(--text-muted); cursor:pointer; }
-  .filter-tabs button.on{ background:var(--mint-dim); border-color:var(--mint-line); color:#046A50; }
+  .filter-tabs button{ font-size:11.5px; font-weight:600; padding:6px 12px; border-radius:16px; border:1px solid var(--border); background:var(--bg-panel); color:var(--ink-muted); cursor:pointer; transition:.15s; }
+  .filter-tabs button.on{ background:var(--mint-tint); border-color:var(--mint-line); color:var(--mint-deep); }
 
-  .auth-wrap{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:16px; }
-  .auth-card{ background:var(--bg-panel); border:1px solid var(--border); border-radius:18px; padding:26px; width:100%; max-width:340px; box-shadow:0 20px 50px rgba(35,40,35,0.12); }
-  .auth-card h1{ font-size:16px; margin-bottom:4px; font-weight:800; } .auth-card p{ font-size:12px; color:var(--text-muted); margin-bottom:18px; }
-  .auth-input{ width:100%; background:var(--bg-input); border:1px solid var(--border); color:var(--text); font-family:var(--font-mono); font-size:13.5px; padding:10px 12px; border-radius:10px; outline:none; margin-bottom:10px; }
-  .auth-input:focus{ border-color:var(--amber); }
-  .field-label{ font-size:11.5px; color:var(--text-muted); margin-bottom:6px; }
+  .auth-wrap{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:16px;
+    background:
+      radial-gradient(600px 340px at 88% -4%, rgba(147,194,58,0.10), transparent 60%),
+      radial-gradient(500px 300px at -2% 10%, rgba(239,177,22,0.09), transparent 55%),
+      var(--bg); }
+  .auth-card{ background:var(--bg-panel); border:1px solid var(--border); border-radius:20px; padding:26px; width:100%; max-width:340px; box-shadow:var(--shadow-lift); }
+  .auth-card-mark{ display:flex; justify-content:center; margin-bottom:10px; }
+  .auth-card h1{ font-size:17px; margin-bottom:4px; font-weight:800; text-align:center; } .auth-card p{ font-size:12px; color:var(--ink-muted); margin-bottom:18px; text-align:center; }
+  .auth-input{ width:100%; background:var(--bg-input); border:1px solid var(--border); color:var(--ink); font-family:var(--font-mono); font-size:13.5px; padding:10px 12px; border-radius:10px; outline:none; margin-bottom:10px; transition:border-color .15s; }
+  .auth-input:focus{ border-color:var(--bean); }
+  .field-label{ font-size:11.5px; color:var(--ink-muted); margin-bottom:6px; }
   textarea.auth-input{ font-family:var(--font-body); resize:vertical; min-height:50px; }
 
   .inline-form{ background:var(--bg-input); border:1px solid var(--border); border-radius:10px; padding:10px; margin-top:8px; }
-  .empty-state{ text-align:center; padding:30px 10px; color:var(--text-muted); font-size:13px; }
+  .empty-state{ text-align:center; padding:30px 10px; color:var(--ink-muted); font-size:13px; }
   #toastbox{ position:fixed; bottom:20px; left:50%; transform:translateX(-50%); z-index:100; display:flex; flex-direction:column; gap:8px; align-items:center; }
-  .toast{ background:#FFFFFF; border:1px solid var(--amber-line); box-shadow:0 6px 20px rgba(35,40,35,0.12); color:var(--text); font-size:12.5px; padding:10px 16px; border-radius:12px; opacity:0; transform:translateY(8px); transition:.25s; }
-  .toast.show{ opacity:1; transform:translateY(0); }
+  .toast{ background:#FFFFFF; border:1px solid var(--bean-line); box-shadow:var(--shadow-lift); color:var(--ink); font-size:12.5px; font-weight:600; padding:11px 18px; border-radius:14px; opacity:0; transform:translateY(10px) scale(.96); transition:opacity .3s cubic-bezier(.2,.8,.3,1), transform .3s cubic-bezier(.2,.8,.3,1); white-space:nowrap; }
+  .toast.show{ opacity:1; transform:translateY(0) scale(1); }
 </style>
 </head>
 <body>
 
 <div id="loginWrap" class="auth-wrap">
   <div class="auth-card">
-    <h1>🌱 콩나물 관리자</h1>
+    <div class="auth-card-mark">
+      <svg width="30" height="36" viewBox="0 0 20 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M10 23C10 15 6 13 6 8" stroke="#0E9E72" stroke-width="2.2" stroke-linecap="round"/>
+        <path d="M10 23C10 16 14 14 14 9" stroke="#93C23A" stroke-width="2" stroke-linecap="round" opacity="0.85"/>
+        <ellipse cx="6" cy="6.5" rx="3.4" ry="2.6" transform="rotate(-25 6 6.5)" fill="#EFB116"/>
+        <ellipse cx="14" cy="7.5" rx="3" ry="2.3" transform="rotate(20 14 7.5)" fill="#EFB116" opacity="0.9"/>
+      </svg>
+    </div>
+    <h1>콩나물 관리자</h1>
     <p>관리자 계정으로 로그인하세요</p>
     <div class="field-label">아이디</div>
     <input class="auth-input" id="adminUsername" placeholder="admin">
     <div class="field-label">비밀번호</div>
     <input class="auth-input" id="adminPassword" type="password" placeholder="********">
     <button class="btn mint" style="width:100%; padding:10px;" onclick="adminLogin()">로그인</button>
-    <p style="margin-top:12px; font-size:11px; color:var(--text-dim);">초기 관리자 비밀번호는 서버를 처음 실행했을 때 콘솔에 출력돼요.</p>
+    <p style="margin-top:12px; font-size:11px; color:var(--ink-faint);">초기 관리자 비밀번호는 서버를 처음 실행했을 때 콘솔에 출력돼요.</p>
   </div>
 </div>
 
 <div id="dashWrap" style="display:none;">
   <div class="topbar">
-    <div class="logo">🌱 콩나물<span class="badge">ADMIN</span></div>
+    <div class="logo"><span style="display:inline-flex;">
+      <svg width="18" height="22" viewBox="0 0 20 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M10 23C10 15 6 13 6 8" stroke="#0E9E72" stroke-width="2.2" stroke-linecap="round"/>
+        <path d="M10 23C10 16 14 14 14 9" stroke="#93C23A" stroke-width="2" stroke-linecap="round" opacity="0.85"/>
+        <ellipse cx="6" cy="6.5" rx="3.4" ry="2.6" transform="rotate(-25 6 6.5)" fill="#EFB116"/>
+        <ellipse cx="14" cy="7.5" rx="3" ry="2.3" transform="rotate(20 14 7.5)" fill="#EFB116" opacity="0.9"/>
+      </svg>
+    </span> 콩나물<span class="badge">ADMIN</span></div>
     <div class="nav" id="navBtns"></div>
     <div class="who" id="whoBox"></div>
     <button class="logout-btn" onclick="adminLogout()">로그아웃</button>
@@ -224,7 +255,7 @@
       <div class="panel">
         <div class="field-label">제목</div><input class="auth-input" id="newAnnTitle" placeholder="예: 추석 연휴 배송 안내">
         <div class="field-label">내용</div><textarea class="auth-input" id="newAnnBody" placeholder="공지 내용을 입력하세요"></textarea>
-        <label style="display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--text-muted); margin-bottom:10px;">
+        <label style="display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--ink-muted); margin-bottom:10px;">
           <input type="checkbox" id="newAnnPinned"> 마켓 화면 상단에 배너로 고정
         </label>
         <button class="btn mint" onclick="createAnnouncement()">공지 등록</button>
@@ -493,9 +524,9 @@ async function loadSellRequests(){
     return `<div style="padding:12px 0; border-bottom:1px solid var(--border-soft);">
       <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px;">
         <span><span class="pill ${req.status}">${req.status}</span> #${req.id} · ${req.email||'-'} · ${req.model_key} · 자가등급 ${req.self_grade}급</span>
-        <span class="mono" style="font-size:11px; color:var(--text-dim);">${fmtTime(req.created_at)}</span>
+        <span class="mono" style="font-size:11px; color:var(--ink-faint);">${fmtTime(req.created_at)}</span>
       </div>
-      <div style="font-size:12px; color:var(--text-muted); margin-top:6px;">예상가 ${won(req.estimated_price)}${req.final_price?` · 최종가 ${won(req.final_price)} (${req.final_grade}급)`:''}${req.note?` · 메모: ${req.note}`:''}${req.admin_note?` · 관리자메모: ${req.admin_note}`:''}</div>
+      <div style="font-size:12px; color:var(--ink-muted); margin-top:6px;">예상가 ${won(req.estimated_price)}${req.final_price?` · 최종가 ${won(req.final_price)} (${req.final_grade}급)`:''}${req.note?` · 메모: ${req.note}`:''}${req.admin_note?` · 관리자메모: ${req.admin_note}`:''}</div>
       <div style="margin-top:8px;">${actions}</div>
     </div>`;
   }).join('');
@@ -551,7 +582,7 @@ async function loadDeposits(){
   panel.innerHTML = r.deposits.map(d=>`
     <div style="padding:12px 0; border-bottom:1px solid var(--border-soft); display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px;">
       <span><span class="pill ${d.status}">${d.status}</span> ${d.email||'-'} · ${won(d.amount)} · 참조코드 <b class="mono">${d.reference_code}</b><br>
-        <span style="font-size:11px; color:var(--text-dim);">입금계좌: ${d.bank_name} ${d.account_number} (${d.holder_name}) · ${fmtTime(d.created_at)}</span>
+        <span style="font-size:11px; color:var(--ink-faint);">입금계좌: ${d.bank_name} ${d.account_number} (${d.holder_name}) · ${fmtTime(d.created_at)}</span>
       </span>
       ${d.status==='pending' ? `<span class="btn-row"><button class="btn mint" onclick="depositApprove(${d.id})">입금확인·승인</button><button class="btn red" onclick="depositReject(${d.id})">거절</button></span>` : ''}
     </div>
@@ -603,7 +634,7 @@ async function loadAtRisk(){
       <span>
         <span class="pill ${it.level===2?'rejected':'pending'}">${it.level===2?'위험(100%+)':'경고(70%+)'}</span>
         <b>${it.email}</b> · ${it.model_key} ${it.grade}급 · 보관 ${it.days_stored}일째<br>
-        <span style="font-size:11.5px; color:var(--text-muted);">
+        <span style="font-size:11.5px; color:var(--ink-muted);">
           보관료 ${won(it.storage_fee)} / 현재가 ${won(it.current_value)} (${it.ratio}%) ·
           지금 매각 시 유저 수령액 <b class="mono">${won(it.net_if_liquidated)}</b>
         </span>
@@ -627,10 +658,10 @@ async function loadInventory(){
       <tr><th>모델</th>${GRADE_ORDER.map(g=>`<th>${g}급</th>`).join('')}</tr>
       ${r.inventory.map(m=>`
         <tr>
-          <td>${m.name}<br><span style="color:var(--text-dim); font-size:10.5px;">${m.code}</span></td>
+          <td>${m.name}<br><span style="color:var(--ink-faint); font-size:10.5px;">${m.code}</span></td>
           ${GRADE_ORDER.map(g=>{
             const qty = m.stock[g] ?? 0;
-            const color = qty===0 ? 'var(--red)' : (qty<=1 ? 'var(--amber)' : 'var(--mint)');
+            const color = qty===0 ? 'var(--red)' : (qty<=1 ? 'var(--bean)' : 'var(--mint)');
             return `<td>
               <input type="number" min="0" value="${qty}" id="stock-${m.key}-${g}"
                 style="width:60px; background:var(--bg-input); border:1px solid var(--border); color:${color};
@@ -667,7 +698,7 @@ async function loadProducts(){
   panel.innerHTML = r.models.map(m=>`
     <div style="padding:14px 0; border-bottom:1px solid var(--border-soft);">
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-        <span>${m.is_active ? '<span class="pill approved">노출중</span>' : '<span class="pill rejected">숨김</span>'} <b>${m.name}</b> <span class="mono" style="color:var(--text-dim);">${m.code} · 현재 ${won(m.mid)}</span></span>
+        <span>${m.is_active ? '<span class="pill approved">노출중</span>' : '<span class="pill rejected">숨김</span>'} <b>${m.name}</b> <span class="mono" style="color:var(--ink-faint);">${m.code} · 현재 ${won(m.mid)}</span></span>
         <button class="btn ${m.is_active?'red':'mint'}" onclick="toggleModelActive('${m.key}')">${m.is_active?'숨기기':'노출하기'}</button>
       </div>
       <div class="inline-form">
@@ -725,7 +756,7 @@ async function loadPrices(){
   const panel = document.getElementById('pricesPanel');
   panel.innerHTML = Object.entries(r.models).map(([key,m])=>`
     <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; padding:10px 0; border-bottom:1px solid var(--border-soft);">
-      <span>${m.name}<br><span style="color:var(--text-dim); font-size:10.5px;">${m.code} · 현재 ${won(m.mid)}</span></span>
+      <span>${m.name}<br><span style="color:var(--ink-faint); font-size:10.5px;">${m.code} · 현재 ${won(m.mid)}</span></span>
       <span class="btn-row">
         <input class="auth-input" style="width:120px; margin-bottom:0;" id="mid-${key}" value="${m.mid}">
         <button class="btn mint" onclick="saveMid('${key}')">차트에 반영</button>
@@ -747,7 +778,7 @@ async function loadAnnouncementsAdmin(){
   if(!r || r.announcements.length===0){ panel.innerHTML = '<div class="empty-state">등록된 공지가 없어요</div>'; return; }
   panel.innerHTML = r.announcements.map(a=>`
     <div style="padding:12px 0; border-bottom:1px solid var(--border-soft); display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px;">
-      <span><b>${a.pinned?'📌 ':''}${a.title}</b><br><span style="font-size:12px; color:var(--text-muted);">${a.body||''}</span></span>
+      <span><b>${a.pinned?'📌 ':''}${a.title}</b><br><span style="font-size:12px; color:var(--ink-muted);">${a.body||''}</span></span>
       <button class="btn red" onclick="deleteAnnouncement(${a.id})">삭제</button>
     </div>
   `).join('');
@@ -793,7 +824,7 @@ async function loadSettings(){
         <div class="field-label">${s.l} (${s.unit})</div>
         <div style="display:flex; gap:8px; align-items:center;">
           <input class="auth-input" style="margin-bottom:0; max-width:160px;" id="setting-${s.k}" value="${displayVal}">
-          <span style="font-size:11px; color:var(--text-dim);">${s.hint}</span>
+          <span style="font-size:11px; color:var(--ink-faint);">${s.hint}</span>
         </div>
       </div>`;
   }).join('') + `<button class="btn mint" onclick="saveSettings()">전체 저장</button>`;
