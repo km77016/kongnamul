@@ -72,7 +72,7 @@
   .wrap{ max-width:1080px; margin:0 auto; padding:20px 16px 0; }
   .view{ display:none; } .view.active{ display:block; }
   .pagehead h1{ font-size:19px; font-weight:800; letter-spacing:-0.01em; } .pagehead p{ font-size:12.5px; color:var(--text-muted); margin-top:4px; }
-  .tickers{ display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:14px; }
+  .tickers{ display:grid; grid-template-columns:repeat(auto-fill, minmax(140px,1fr)); gap:8px; margin-bottom:14px; }
   .ticker{ background:var(--bg-panel); border:1px solid var(--border); border-radius:14px; padding:12px 12px 10px; cursor:pointer; transition:.15s; }
   .ticker:hover{ border-color:var(--mint-line); }
   .ticker.active{ border-color:var(--mint); background:var(--mint-dim); }
@@ -150,6 +150,14 @@
   .announce-banner{ background:linear-gradient(120deg, var(--lime-dim), var(--mint-dim)); border:1px solid var(--lime-line);
     border-radius:14px; padding:12px 16px; margin-bottom:14px; font-size:12.5px; display:flex; gap:10px; align-items:flex-start; }
   .announce-banner b{ display:block; font-size:13px; margin-bottom:2px; }
+  .drop-banner{ border-radius:14px; padding:14px 16px; margin-bottom:14px; font-size:13px; border:1px solid; }
+  .drop-banner.wait{ background:var(--amber-dim); border-color:var(--amber-line); color:#8A6300; }
+  .drop-banner.live{ background:var(--mint-dim); border-color:var(--mint-line); color:#046A50; }
+  .drop-banner.ended{ background:var(--red-dim); border-color:var(--red-line); color:#B23A4C; }
+  .drop-banner b{ display:block; font-size:15px; font-family:var(--font-mono); margin-top:4px; }
+  .risk-banner{ border-radius:12px; padding:12px 14px; margin-bottom:10px; font-size:12px; line-height:1.6; }
+  .risk-banner.level1{ background:var(--amber-dim); border:1px solid var(--amber-line); color:#8A6300; }
+  .risk-banner.level2{ background:var(--red-dim); border:1px solid var(--red-line); color:#B23A4C; }
 
   .auth-overlay{ position:fixed; inset:0; background:rgba(35,40,35,0.35); z-index:200; display:flex; align-items:center; justify-content:center; padding:16px; }
   .auth-card{ background:var(--bg-panel); border:1px solid var(--border); border-radius:18px; padding:22px; width:100%; max-width:360px; box-shadow:0 20px 50px rgba(35,40,35,0.15); }
@@ -240,6 +248,7 @@
   <section class="view" id="view-trade">
     <div class="pagehead"><h1>구매하기</h1><p>검수완료된 재고를 즉시 구매해요. 내 에어팟을 팔고 싶다면 상단의 "매입신청" 탭을 이용하세요.</p></div>
     <div class="tickers" id="tradeTickers"></div>
+    <div id="dropBanner"></div>
     <div class="field"><div class="field-label">등급 선택</div><div class="seg seg-4" id="tradeGradeSeg"></div></div>
     <div class="trade-cols" style="grid-template-columns:1fr; max-width:420px;">
       <div class="trade-card buy-card">
@@ -250,6 +259,7 @@
         <div class="field" id="regionField" style="display:none;"><div class="field-label">배송 지역</div><div class="seg seg-2" id="regionSeg"></div></div>
         <div class="stock-line" id="totalDueLine" style="margin-bottom:14px;"></div>
         <button class="action-btn red" id="buyBtn" onclick="doBuy()">구매하기</button>
+        <button class="mini-btn" id="reserveBtn" style="width:100%; margin-top:8px; display:none;" onclick="toggleReserve()">🔔 예약 알림 받기</button>
       </div>
     </div>
   </section>
@@ -371,7 +381,7 @@ let tradeRegion = 'normal';
 let deliveryFlowId = null, deliveryFlowRegion = 'normal';
 let authTab = 'signup', codeSent = false;
 let selectedSellModel = 'pro2', selectedSellGrade = 'A';
-let sellRequests = [], depositAccount = null, depositRequests = [];
+let sellRequests = [], depositAccount = null, depositRequests = [], reservations = [];
 const GRADES = [
   {key:'S', label:'S급', sub:'사용감 거의없음'}, {key:'A', label:'A급', sub:'경미한 사용감'},
   {key:'B', label:'B급', sub:'스크래치 있음'}, {key:'C', label:'C급', sub:'기능/외관 하자'}
@@ -393,7 +403,7 @@ function toast(msg){
 
 async function api(path, opts){
   opts = opts || {};
-  if(opts.method === 'POST'){
+  if(opts.method && opts.method !== 'GET'){
     opts.headers = opts.headers || {};
     if(STATE && STATE.csrf_token) opts.headers['X-CSRF-Token'] = STATE.csrf_token;
   }
@@ -425,6 +435,7 @@ function goToView(key){
   currentView = key;
   if(key==='sell'){ loadSellRequests().then(renderAll); }
   if(key==='deposit'){ loadDepositData().then(renderAll); }
+  if(key==='trade'){ loadReservations().then(renderAll); }
   renderAll();
 }
 
@@ -538,7 +549,7 @@ function requireLogin(){
 
 function renderMarketTickers(){
   const el = document.getElementById('marketTickers'); el.innerHTML='';
-  Object.entries(STATE.models).forEach(([key,m])=>{
+  Object.entries(STATE.models).filter(([,m])=>m.is_active).forEach(([key,m])=>{
     const div = document.createElement('div');
     div.className = 'ticker'+(selectedModel===key?' active':'');
     div.innerHTML = `<div class="ticker-code">${m.code}</div><div class="ticker-name">${m.name}</div>
@@ -586,9 +597,56 @@ function renderStats(){
   document.getElementById('statStock').textContent = totalStock.toLocaleString('ko-KR');
 }
 
+function getDropStatus(m){
+  const now = Date.now();
+  if(!m.drop_start && !m.drop_end) return {state:'none'};
+  const start = m.drop_start ? new Date(m.drop_start).getTime() : null;
+  const end = m.drop_end ? new Date(m.drop_end).getTime() : null;
+  if(start && now < start) return {state:'wait', start, end};
+  if(end && now > end) return {state:'ended', start, end};
+  return {state:'live', start, end};
+}
+function fmtCountdown(ms){
+  if(ms<0) ms=0;
+  const s = Math.floor(ms/1000);
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+}
+function renderDropBanner(info){
+  const el = document.getElementById('dropBanner');
+  if(info.state==='none'){ el.innerHTML=''; return; }
+  if(info.state==='wait'){
+    el.innerHTML = `<div class="drop-banner wait">⏰ 판매 시작까지<b id="dropCountdown">${fmtCountdown(info.start-Date.now())}</b></div>`;
+  } else if(info.state==='live' && info.end){
+    el.innerHTML = `<div class="drop-banner live">🟢 지금 구매 가능! 종료까지<b id="dropCountdown">${fmtCountdown(info.end-Date.now())}</b></div>`;
+  } else if(info.state==='live'){
+    el.innerHTML = `<div class="drop-banner live">🟢 지금 구매 가능해요</div>`;
+  } else if(info.state==='ended'){
+    el.innerHTML = `<div class="drop-banner ended">⏹ 이 상품의 판매 시간이 종료됐어요</div>`;
+  }
+}
+async function loadReservations(){
+  if(!STATE || !STATE.user){ reservations=[]; return; }
+  const r = await api('/api/my-reservations');
+  reservations = r ? r.reservations : [];
+}
+async function toggleReserve(){
+  if(!requireLogin()) return;
+  const isReserved = reservations.some(r=>r.model_key===selectedModel && r.grade===selectedGrade);
+  if(isReserved){
+    await api(`/api/reserve/${selectedModel}/${selectedGrade}`, {method:'DELETE'});
+    toast('예약을 취소했어요');
+  } else {
+    await api('/api/reserve', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({model:selectedModel, grade:selectedGrade})});
+    toast('예약 완료! 판매가 시작되면 이 화면에서 바로 구매할 수 있어요');
+  }
+  await loadReservations();
+  renderTradeTickers();
+}
+
 function renderTradeTickers(){
   const el = document.getElementById('tradeTickers'); el.innerHTML='';
-  Object.entries(STATE.models).forEach(([key,m])=>{
+  Object.entries(STATE.models).filter(([,m])=>m.is_active).forEach(([key,m])=>{
     const div = document.createElement('div');
     div.className = 'ticker'+(selectedModel===key?' active':'');
     div.innerHTML = `<div class="ticker-code">${m.code}</div><div class="ticker-name">${m.name}</div><div class="ticker-row"><span class="ticker-price">${won(m.mid)}</span></div>`;
@@ -633,10 +691,23 @@ function renderTradeTickers(){
   }
   document.getElementById('buyPrice').textContent = won(itemPrice);
   const stock = m.stock[selectedGrade] || 0;
-  document.getElementById('stockLine').textContent = stock>0 ? `현재 재고 ${stock}개` : '일시 품절';
+
+  const dropInfo = getDropStatus(m);
+  renderDropBanner(dropInfo);
+  const reserveBtn = document.getElementById('reserveBtn');
+  if(dropInfo.state === 'wait'){
+    reserveBtn.style.display = '';
+    const isReserved = reservations.some(r=>r.model_key===selectedModel && r.grade===selectedGrade);
+    reserveBtn.textContent = isReserved ? '🔔 예약됨 (취소하기)' : '🔔 예약 알림 받기';
+  } else {
+    reserveBtn.style.display = 'none';
+  }
+  const canBuyNow = dropInfo.state !== 'wait' && dropInfo.state !== 'ended';
+
+  document.getElementById('stockLine').textContent = !canBuyNow ? '' : (stock>0 ? `현재 재고 ${stock}개` : '일시 품절');
   const buyBtn = document.getElementById('buyBtn');
-  buyBtn.disabled = stock<=0;
-  buyBtn.textContent = stock<=0 ? '품절' : '구매하기';
+  buyBtn.disabled = stock<=0 || !canBuyNow;
+  buyBtn.textContent = !canBuyNow ? (dropInfo.state==='wait' ? '판매 시작 전' : '판매 종료') : (stock<=0 ? '품절' : '구매하기');
 }
 
 async function doBuy(){
@@ -689,7 +760,17 @@ function renderPortfolio(){
     panel.innerHTML = `<div class="empty-state">보관중인 아이템이 없어요<br><button class="mini-btn" style="margin-top:10px;" onclick="goTrade()">거래하기로 이동</button></div>`;
     return;
   }
-  panel.innerHTML = STATE.portfolio.map(it=>{
+  const riskItems = STATE.portfolio.filter(it=>it.risk_level>0);
+  const riskHtml = riskItems.map(it=>{
+    const m = STATE.models[it.model_key];
+    const cls = it.risk_level===2 ? 'level2' : 'level1';
+    const msg = it.risk_level===2
+      ? `보관료(${won(it.storage_fee)})가 현재 매도가(${won(it.current_value)})를 넘었어요. 지금 매도해도 남는 돈이 없거나 손해예요.`
+      : `보관료(${won(it.storage_fee)})가 현재 매도가(${won(it.current_value)})의 70%를 넘었어요. 방치하면 손해가 커질 수 있어요.`;
+    return `<div class="risk-banner ${cls}">⚠️ <b>${m?m.name:it.model_key} ${it.grade}급</b> — ${msg}</div>`;
+  }).join('');
+
+  panel.innerHTML = riskHtml + STATE.portfolio.map(it=>{
     const m = STATE.models[it.model_key];
     const nowPrice = m.prices[it.grade].buy;
     const diff = nowPrice - it.bought_price;
@@ -743,7 +824,7 @@ const SELL_STATUS_LABEL = {
 
 function renderSellView(){
   const el = document.getElementById('sellTickers'); el.innerHTML='';
-  Object.entries(STATE.models).forEach(([key,m])=>{
+  Object.entries(STATE.models).filter(([,m])=>m.is_active).forEach(([key,m])=>{
     const div = document.createElement('div');
     div.className = 'ticker'+(selectedSellModel===key?' active':'');
     div.innerHTML = `<div class="ticker-code">${m.code}</div><div class="ticker-name">${m.name}</div><div class="ticker-row"><span class="ticker-price">${won(m.mid)}</span></div>`;
@@ -926,6 +1007,7 @@ function renderNotice(){
 loadAnnouncements();
 refresh();
 setInterval(refresh, 3000); // 서버 상태를 3초마다 폴링 (서버의 자동 tick 결과도 여기서 반영됨)
+setInterval(()=>{ if(STATE && currentView==='trade') renderTradeTickers(); }, 1000); // 드랍 카운트다운 갱신
 </script>
 </body>
 </html>

@@ -168,6 +168,34 @@
       <div class="panel" id="inventoryPanel"></div>
     </section>
 
+    <section class="view" id="view-atrisk">
+      <div class="pagehead"><h1>매각위기 아이템</h1><p>보관료가 물건 가치의 70% 이상 쌓여서, 방치하면 유저가 손해를 보는 아이템이에요. 유저에게는 이미 자동으로 이메일 알림이 나갔어요.</p></div>
+      <div class="panel" id="atRiskPanel"></div>
+    </section>
+
+    <section class="view" id="view-products">
+      <div class="pagehead"><h1>상품 관리</h1><p>새 상품을 등록하거나, 판매 노출 여부·판매 시간창(드랍)을 관리해요</p></div>
+      <div class="panel" id="productsPanel"></div>
+      <div class="panel">
+        <div class="panel-title">새 상품 등록</div>
+        <div class="field-label">상품 키 (영문 소문자/숫자, 예: budsz)</div>
+        <input class="auth-input" id="newModelKey" placeholder="budsz">
+        <div class="field-label">코드 (티커에 표시, 예: BUDSZ)</div>
+        <input class="auth-input" id="newModelCode" placeholder="BUDSZ">
+        <div class="field-label">상품명</div>
+        <input class="auth-input" id="newModelName" placeholder="갤럭시 버즈 Z">
+        <div class="field-label">A급 기준가 (원)</div>
+        <input class="auth-input" id="newModelMid" placeholder="150000">
+        <div class="btn-row" style="margin-bottom:10px;">
+          <div><div class="field-label">S급 배율</div><input class="auth-input" style="width:80px;" id="newModelRatioS" value="1.2"></div>
+          <div><div class="field-label">B급 배율</div><input class="auth-input" style="width:80px;" id="newModelRatioB" value="0.8"></div>
+          <div><div class="field-label">C급 배율</div><input class="auth-input" style="width:80px;" id="newModelRatioC" value="0.55"></div>
+        </div>
+        <button class="btn mint" onclick="createModel()">상품 등록</button>
+        <div class="empty-state" style="text-align:left; padding:10px 0 0;">등록 직후엔 재고가 0개예요. "재고관리" 탭에서 수량을 채워주세요.</div>
+      </div>
+    </section>
+
     <section class="view" id="view-prices">
       <div class="pagehead"><h1>시세 관리</h1><p>차트에 표시되는 기준 시세를 직접 입력해서 즉시 반영할 수 있어요</p></div>
       <div class="panel" id="pricesPanel"></div>
@@ -231,7 +259,8 @@
 const NAV = [
   {key:'revenue', label:'수익현황'}, {key:'orders', label:'주문내역'}, {key:'users', label:'계정정보'},
   {key:'sellreq', label:'매입신청'}, {key:'deposits', label:'입금확인'}, {key:'inventory', label:'재고관리'},
-  {key:'prices', label:'시세관리'}, {key:'accounts', label:'계좌관리'}, {key:'settings', label:'설정'},
+  {key:'atrisk', label:'매각위기'},
+  {key:'products', label:'상품관리'}, {key:'prices', label:'시세관리'}, {key:'accounts', label:'계좌관리'}, {key:'settings', label:'설정'},
   {key:'notices', label:'공지사항'}, {key:'audit', label:'감사로그'}, {key:'system', label:'시스템'}
 ];
 let currentView = 'revenue';
@@ -311,6 +340,8 @@ function loadCurrentView(){
   if(currentView==='sellreq') loadSellRequests();
   if(currentView==='deposits') loadDeposits();
   if(currentView==='inventory') loadInventory();
+  if(currentView==='atrisk') loadAtRisk();
+  if(currentView==='products') loadProducts();
   if(currentView==='prices') loadPrices();
   if(currentView==='accounts') loadAccounts();
   if(currentView==='settings') loadSettings();
@@ -561,6 +592,32 @@ async function activateAccount(id){
 
 // ---------------- 재고 관리 ----------------
 const GRADE_ORDER = ['S','A','B','C'];
+// ---------------- 매각위기 ----------------
+async function loadAtRisk(){
+  const r = await api('/api/admin/at-risk');
+  if(!r) return;
+  const panel = document.getElementById('atRiskPanel');
+  if(r.items.length===0){ panel.innerHTML = '<div class="empty-state">현재 위험 상태인 아이템이 없어요 🌱</div>'; return; }
+  panel.innerHTML = r.items.map(it=>`
+    <div style="padding:14px 0; border-bottom:1px solid var(--border-soft); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+      <span>
+        <span class="pill ${it.level===2?'rejected':'pending'}">${it.level===2?'위험(100%+)':'경고(70%+)'}</span>
+        <b>${it.email}</b> · ${it.model_key} ${it.grade}급 · 보관 ${it.days_stored}일째<br>
+        <span style="font-size:11.5px; color:var(--text-muted);">
+          보관료 ${won(it.storage_fee)} / 현재가 ${won(it.current_value)} (${it.ratio}%) ·
+          지금 매각 시 유저 수령액 <b class="mono">${won(it.net_if_liquidated)}</b>
+        </span>
+      </span>
+      <button class="btn red" onclick="liquidateItem('${it.id}', '${it.email}')">강제 매각</button>
+    </div>
+  `).join('');
+}
+async function liquidateItem(id, email){
+  if(!confirm(`${email} 님의 아이템을 지금 강제로 매각할까요?\n보관료를 뺀 나머지 금액만 유저에게 지급되고, 이메일로 안내가 나가요.`)) return;
+  const r = await api(`/api/admin/portfolio/${id}/liquidate`, {method:'POST'});
+  if(r){ toast(`매각 완료 · 유저에게 ${won(r.net)} 지급`); loadAtRisk(); }
+}
+
 async function loadInventory(){
   const r = await api('/api/admin/inventory');
   if(!r) return;
@@ -596,6 +653,72 @@ async function saveStock(model, grade){
 }
 
 // ---------------- 시세(차트) 관리 ----------------
+// ---------------- 상품 관리 ----------------
+function toLocalInputValue(iso){
+  if(!iso) return '';
+  const d = new Date(iso);
+  const pad = n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+async function loadProducts(){
+  const r = await api('/api/admin/models');
+  if(!r) return;
+  const panel = document.getElementById('productsPanel');
+  panel.innerHTML = r.models.map(m=>`
+    <div style="padding:14px 0; border-bottom:1px solid var(--border-soft);">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+        <span>${m.is_active ? '<span class="pill approved">노출중</span>' : '<span class="pill rejected">숨김</span>'} <b>${m.name}</b> <span class="mono" style="color:var(--text-dim);">${m.code} · 현재 ${won(m.mid)}</span></span>
+        <button class="btn ${m.is_active?'red':'mint'}" onclick="toggleModelActive('${m.key}')">${m.is_active?'숨기기':'노출하기'}</button>
+      </div>
+      <div class="inline-form">
+        <div class="field-label">판매 시간창(드랍) — 비워두면 언제든 구매 가능</div>
+        <div class="btn-row" style="align-items:flex-end;">
+          <div><div class="field-label">시작</div><input class="auth-input" type="datetime-local" id="dropstart-${m.key}" value="${toLocalInputValue(m.drop_start)}" style="margin-bottom:0;"></div>
+          <div><div class="field-label">종료(선택)</div><input class="auth-input" type="datetime-local" id="dropend-${m.key}" value="${toLocalInputValue(m.drop_end)}" style="margin-bottom:0;"></div>
+          <button class="btn mint" onclick="saveDrop('${m.key}')">설정</button>
+          <button class="btn" onclick="clearDrop('${m.key}')">해제</button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+async function toggleModelActive(key){
+  const r = await api(`/api/admin/models/${key}/toggle-active`, {method:'POST'});
+  if(r){ toast(r.is_active ? '상품을 노출했어요' : '상품을 숨겼어요'); loadProducts(); }
+}
+async function saveDrop(key){
+  const startVal = document.getElementById(`dropstart-${key}`).value;
+  const endVal = document.getElementById(`dropend-${key}`).value;
+  const body = {
+    drop_start: startVal ? new Date(startVal).toISOString() : null,
+    drop_end: endVal ? new Date(endVal).toISOString() : null,
+  };
+  const r = await api(`/api/admin/models/${key}/set-drop`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  if(r){ toast('판매 시간창을 설정했어요'); loadProducts(); }
+}
+async function clearDrop(key){
+  const r = await api(`/api/admin/models/${key}/set-drop`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({clear:true})});
+  if(r){ toast('시간 제한을 해제했어요'); loadProducts(); }
+}
+async function createModel(){
+  const payload = {
+    key: document.getElementById('newModelKey').value.trim(),
+    code: document.getElementById('newModelCode').value.trim(),
+    name: document.getElementById('newModelName').value.trim(),
+    mid: document.getElementById('newModelMid').value,
+    ratio_s: document.getElementById('newModelRatioS').value,
+    ratio_a: 1.0,
+    ratio_b: document.getElementById('newModelRatioB').value,
+    ratio_c: document.getElementById('newModelRatioC').value,
+  };
+  const r = await api('/api/admin/models', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+  if(r){
+    toast('상품을 등록했어요');
+    ['newModelKey','newModelCode','newModelName','newModelMid'].forEach(id=>document.getElementById(id).value='');
+    loadProducts();
+  }
+}
+
 async function loadPrices(){
   const r = await fetch('/api/state').then(res=>res.json()).catch(()=>null);
   if(!r) return;
