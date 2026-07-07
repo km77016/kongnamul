@@ -1509,5 +1509,13 @@ def index():
 if __name__ == '__main__':
     init_db()
     load_settings_cache()
+    
+    # 데몬 스레드로 스케줄러 실행
     threading.Thread(target=scheduler_loop, daemon=True).start()
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    
+    # ⭕ Render 환경 변수에서 포트를 읽어오고, 없으면 기본값으로 5000을 사용합나다.
+    # Render 내부 시스템이 주는 포트는 문자열이므로 int로 형변환이 필요합니다.
+    port = int(os.environ.get("PORT", 5000))
+    
+    # host는 '0.0.0.0' 그대로 두시면 됩니다.
+    app.run(host='0.0.0.0', port=port, debug=False)
