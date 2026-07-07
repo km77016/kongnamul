@@ -1,0 +1,12 @@
+{
+  "name": "kongnamul-backend",
+  "version": "1.0.0",
+  "description": "에어팟(Pro1/Pro2/Pro3/AirPods4 노캔) 리셀 마켓의 실제 작동하는 백엔드 + 관리자 대시보드입니다. Flask + SQLite로 만들어졌고, 모든 핵심 흐름을 로컬에서 직접 실행해 curl로 검증했습니다.",
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  }
+}

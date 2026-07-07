@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="theme-color" content="#FAFAF5">
+<title>콩나물 관리자</title>
+<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#FAFAF5; --bg-panel:#FFFFFF; --bg-panel-alt:#F1F9F1; --bg-input:#F6F8F2;
+    --border:#E6E9DF; --border-soft:#EFF2E9;
+    --text:#232823; --text-muted:#767F70; --text-dim:#A7AE9F;
+    --mint:#00B287; --mint-line:#8FE0C4; --mint-dim:#E1F7EE;
+    --lime:#8CC63F; --lime-line:#C9E79A; --lime-dim:#EEF6DC;
+    --amber:#F5B400; --amber-line:#FFE08A; --amber-dim:#FFF4D6;
+    --red:#EF5D72; --red-line:#F7B9C4; --red-dim:#FDE9EC;
+    --font-mono:'JetBrains Mono','SF Mono',monospace; --font-body:'Pretendard',-apple-system,sans-serif;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{ background:var(--bg); color:var(--text); font-family:var(--font-body); -webkit-font-smoothing:antialiased; padding-bottom:60px;}
+
+  .topbar{ position:sticky; top:0; z-index:20; background:rgba(250,250,245,0.95); backdrop-filter:blur(8px);
+    border-bottom:1px solid var(--border); display:flex; align-items:center; gap:14px; padding:12px 20px; flex-wrap:wrap; }
+  .logo{ font-weight:800; font-size:16px; display:flex; align-items:center; gap:6px; }
+  .logo .badge{ font-size:10px; font-weight:700; color:#B8860B; background:var(--amber-dim); border:1px solid var(--amber-line); padding:3px 8px; border-radius:10px; margin-left:4px; }
+  .nav{ display:flex; gap:4px; flex:1; flex-wrap:wrap; }
+  .navbtn{ background:transparent; border:1px solid transparent; color:var(--text-muted); font-size:12.5px; font-weight:600; padding:8px 12px; border-radius:20px; cursor:pointer; }
+  .navbtn:hover{ color:var(--text); background:var(--bg-input); }
+  .navbtn.active{ color:#046A50; background:var(--mint-dim); border-color:var(--mint-line); }
+  .who{ font-size:12px; color:var(--text-muted); font-family:var(--font-mono); }
+  .logout-btn{ font-size:11px; color:var(--text-muted); background:var(--bg-panel); border:1px solid var(--border); padding:6px 10px; border-radius:20px; cursor:pointer; }
+
+  @media(max-width:820px){
+    .topbar{ flex-wrap:nowrap; padding:10px 12px; gap:8px; }
+    .logo{ font-size:14px; flex:0 0 auto; }
+    .nav{
+      order:3; flex-basis:100%; flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch;
+      gap:6px; padding-bottom:2px; margin-top:6px;
+    }
+    .nav::-webkit-scrollbar{ display:none; }
+    .navbtn{ flex:0 0 auto; white-space:nowrap; }
+    .who{ display:none; }
+    .wrap{ padding:14px 12px 0; }
+    .panel{ padding:15px; border-radius:14px; }
+    .auth-input, textarea{ font-size:16px !important; }
+    .btn{ padding:9px 12px; }
+    th, td{ padding:8px 6px; font-size:12px; }
+  }
+
+  .wrap{ max-width:1100px; margin:0 auto; padding:20px 16px 0; }
+  .view{ display:none; } .view.active{ display:block; }
+  .pagehead h1{ font-size:18px; font-weight:800; } .pagehead p{ font-size:12px; color:var(--text-muted); margin-top:4px; }
+
+  .panel{ background:var(--bg-panel); border:1px solid var(--border); border-radius:16px; padding:18px; margin-bottom:14px; }
+  .panel-title{ font-size:11px; font-weight:700; color:var(--text-muted); letter-spacing:.06em; text-transform:uppercase; margin-bottom:14px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px; }
+
+  .stat-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+  @media(max-width:700px){ .stat-grid{ grid-template-columns:repeat(2,1fr); } }
+  .stat-card{ background:var(--bg-input); border:1px solid var(--border); border-radius:12px; padding:14px; }
+  .stat-card .l{ font-size:11px; color:var(--text-muted); } .stat-card .v{ font-family:var(--font-mono); font-size:19px; font-weight:800; color:var(--mint); margin-top:6px; }
+  .stat-card.neg .v{ color:var(--red); }
+
+  table{ width:100%; border-collapse:collapse; font-size:12.5px; }
+  th,td{ text-align:left; padding:9px 8px; border-bottom:1px solid var(--border-soft); white-space:nowrap; }
+  th{ color:var(--text-muted); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.03em; }
+  .table-wrap{ overflow-x:auto; }
+  .mono{ font-family:var(--font-mono); }
+  .pill{ font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:10px; }
+  .pill.pending{ background:var(--amber-dim); color:#B8860B; }
+  .pill.approved, .pill.paid{ background:var(--mint-dim); color:#046A50; }
+  .pill.rejected, .pill.cancelled{ background:var(--red-dim); color:#B23A4C; }
+  .pill.submitted{ background:var(--bg-input); color:var(--text-muted); border:1px solid var(--border); }
+  .pill.received, .pill.inspected{ background:var(--amber-dim); color:#B8860B; }
+
+  .btn{ font-size:11.5px; font-weight:600; padding:6px 10px; border-radius:8px; border:1px solid var(--border); background:var(--bg-panel); color:var(--text); cursor:pointer; }
+  .btn:hover{ border-color:var(--mint-line); }
+  .btn.mint{ background:var(--mint-dim); border-color:var(--mint-line); color:#046A50; }
+  .btn.red{ background:var(--red-dim); border-color:var(--red-line); color:#B23A4C; }
+  .btn-row{ display:flex; gap:6px; flex-wrap:wrap; }
+
+  .filter-tabs{ display:flex; gap:6px; margin-bottom:14px; flex-wrap:wrap; }
+  .filter-tabs button{ font-size:11.5px; font-weight:600; padding:6px 12px; border-radius:16px; border:1px solid var(--border); background:var(--bg-panel); color:var(--text-muted); cursor:pointer; }
+  .filter-tabs button.on{ background:var(--mint-dim); border-color:var(--mint-line); color:#046A50; }
+
+  .auth-wrap{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:16px; }
+  .auth-card{ background:var(--bg-panel); border:1px solid var(--border); border-radius:18px; padding:26px; width:100%; max-width:340px; box-shadow:0 20px 50px rgba(35,40,35,0.12); }
+  .auth-card h1{ font-size:16px; margin-bottom:4px; font-weight:800; } .auth-card p{ font-size:12px; color:var(--text-muted); margin-bottom:18px; }
+  .auth-input{ width:100%; background:var(--bg-input); border:1px solid var(--border); color:var(--text); font-family:var(--font-mono); font-size:13.5px; padding:10px 12px; border-radius:10px; outline:none; margin-bottom:10px; }
+  .auth-input:focus{ border-color:var(--amber); }
+  .field-label{ font-size:11.5px; color:var(--text-muted); margin-bottom:6px; }
+  textarea.auth-input{ font-family:var(--font-body); resize:vertical; min-height:50px; }
+
+  .inline-form{ background:var(--bg-input); border:1px solid var(--border); border-radius:10px; padding:10px; margin-top:8px; }
+  .empty-state{ text-align:center; padding:30px 10px; color:var(--text-muted); font-size:13px; }
+  #toastbox{ position:fixed; bottom:20px; left:50%; transform:translateX(-50%); z-index:100; display:flex; flex-direction:column; gap:8px; align-items:center; }
+  .toast{ background:#FFFFFF; border:1px solid var(--amber-line); box-shadow:0 6px 20px rgba(35,40,35,0.12); color:var(--text); font-size:12.5px; padding:10px 16px; border-radius:12px; opacity:0; transform:translateY(8px); transition:.25s; }
+  .toast.show{ opacity:1; transform:translateY(0); }
+</style>
+</head>
+<body>
+
+<div id="loginWrap" class="auth-wrap">
+  <div class="auth-card">
+    <h1>🌱 콩나물 관리자</h1>
+    <p>관리자 계정으로 로그인하세요</p>
+    <div class="field-label">아이디</div>
+    <input class="auth-input" id="adminUsername" placeholder="admin">
+    <div class="field-label">비밀번호</div>
+    <input class="auth-input" id="adminPassword" type="password" placeholder="********">
+    <button class="btn mint" style="width:100%; padding:10px;" onclick="adminLogin()">로그인</button>
+    <p style="margin-top:12px; font-size:11px; color:var(--text-dim);">초기 관리자 비밀번호는 서버를 처음 실행했을 때 콘솔에 출력돼요.</p>
+  </div>
+</div>
+
+<div id="dashWrap" style="display:none;">
+  <div class="topbar">
+    <div class="logo">🌱 콩나물<span class="badge">ADMIN</span></div>
+    <div class="nav" id="navBtns"></div>
+    <div class="who" id="whoBox"></div>
+    <button class="logout-btn" onclick="adminLogout()">로그아웃</button>
+  </div>
+
+  <div class="wrap">
+    <section class="view active" id="view-revenue">
+      <div class="pagehead"><h1>수익 현황</h1><p>매입/판매 스프레드와 배송비·보관료 수익을 합산해 보여줘요</p></div>
+      <div class="panel">
+        <div class="panel-title">오늘</div>
+        <div class="stat-grid" id="revenueToday"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">누적 (전체 기간)</div>
+        <div class="stat-grid" id="revenueAll"></div>
+      </div>
+    </section>
+
+    <section class="view" id="view-orders">
+      <div class="pagehead"><h1>주문 내역</h1><p>최근 체결된 구매·매입 거래예요</p></div>
+      <div class="panel">
+        <div class="panel-title">최근 거래 <button class="btn" onclick="exportOrdersCSV()">CSV 내보내기</button></div>
+        <div class="table-wrap"><table id="ordersTable"></table></div>
+      </div>
+    </section>
+
+    <section class="view" id="view-users">
+      <div class="pagehead"><h1>계정 정보</h1><p>가입한 회원과 잔액, 보유·거래 현황이에요</p></div>
+      <div class="panel">
+        <div class="panel-title">회원 목록 <button class="btn" onclick="exportUsersCSV()">CSV 내보내기</button></div>
+        <div class="table-wrap"><table id="usersTable"></table></div>
+      </div>
+    </section>
+
+    <section class="view" id="view-sellreq">
+      <div class="pagehead"><h1>매입 신청 관리</h1><p>접수 → 수령확인 → 검수 → 정산 순으로 처리해요</p></div>
+      <div class="filter-tabs" id="sellFilterTabs"></div>
+      <div class="panel" id="sellReqPanel"></div>
+    </section>
+
+    <section class="view" id="view-deposits">
+      <div class="pagehead"><h1>입금 확인</h1><p>계좌이체 충전 요청을 실제 입금 내역과 대조해 승인/거절해요</p></div>
+      <div class="filter-tabs" id="depositFilterTabs"></div>
+      <div class="panel" id="depositsPanel"></div>
+    </section>
+
+    <section class="view" id="view-inventory">
+      <div class="pagehead"><h1>재고 관리</h1><p>모델·등급별 판매 가능 재고예요. 매입 정산이 완료되면 자동으로 1개씩 편입돼요.</p></div>
+      <div class="panel" id="inventoryPanel"></div>
+    </section>
+
+    <section class="view" id="view-prices">
+      <div class="pagehead"><h1>시세 관리</h1><p>차트에 표시되는 기준 시세를 직접 입력해서 즉시 반영할 수 있어요</p></div>
+      <div class="panel" id="pricesPanel"></div>
+    </section>
+
+    <section class="view" id="view-accounts">
+      <div class="pagehead"><h1>입금 계좌 관리</h1><p>현재 활성 계좌 1개로만 입금 요청 안내가 나가요</p></div>
+      <div class="panel" id="accountsPanel"></div>
+      <div class="panel">
+        <div class="panel-title">계좌 추가</div>
+        <div class="field-label">은행명</div><input class="auth-input" id="newBankName" placeholder="예: 국민은행">
+        <div class="field-label">계좌번호</div><input class="auth-input" id="newAccNumber" placeholder="예: 123-456-789012">
+        <div class="field-label">예금주</div><input class="auth-input" id="newHolderName" placeholder="예: 콩나물(주)">
+        <button class="btn mint" onclick="addBankAccount()">계좌 추가</button>
+        <div class="empty-state" style="padding:10px 0 0; text-align:left;">⚠ 이체한도 문제로 계좌를 자주 바꿔가며 입금받는 건 권장하지 않아요. 거래량이 늘면 PG사 가상계좌 연동이나 사업자 통장 한도 상향을 검토하세요.</div>
+      </div>
+    </section>
+
+    <section class="view" id="view-settings">
+      <div class="pagehead"><h1>운영 설정</h1><p>스프레드·수수료·시세갱신 주기를 코드 수정 없이 여기서 바꿀 수 있어요</p></div>
+      <div class="panel" id="settingsPanel"></div>
+    </section>
+
+    <section class="view" id="view-notices">
+      <div class="pagehead"><h1>공지사항 관리</h1><p>고객 사이트에 노출되는 공지를 작성·삭제해요</p></div>
+      <div class="panel">
+        <div class="field-label">제목</div><input class="auth-input" id="newAnnTitle" placeholder="예: 추석 연휴 배송 안내">
+        <div class="field-label">내용</div><textarea class="auth-input" id="newAnnBody" placeholder="공지 내용을 입력하세요"></textarea>
+        <label style="display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--text-muted); margin-bottom:10px;">
+          <input type="checkbox" id="newAnnPinned"> 마켓 화면 상단에 배너로 고정
+        </label>
+        <button class="btn mint" onclick="createAnnouncement()">공지 등록</button>
+      </div>
+      <div class="panel" id="announcementsPanel"></div>
+    </section>
+
+    <section class="view" id="view-audit">
+      <div class="pagehead"><h1>감사 로그</h1><p>관리자 조치와 로그인 실패 등 보안 이벤트 기록이에요</p></div>
+      <div class="panel"><div class="table-wrap"><table id="auditTable"></table></div></div>
+    </section>
+
+
+
+    <section class="view" id="view-system">
+      <div class="pagehead"><h1>시스템</h1><p>운영 도구예요. 초기화는 되돌릴 수 없어요.</p></div>
+      <div class="panel">
+        <div class="panel-title">시세 갱신</div>
+        <button class="btn" onclick="tickNow()">지금 시세 갱신 실행</button>
+      </div>
+      <div class="panel">
+        <div class="panel-title" style="color:var(--red);">위험 구역</div>
+        <button class="btn red" onclick="resetAll()">전체 데이터베이스 초기화</button>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div id="toastbox"></div>
+
+<script>
+const NAV = [
+  {key:'revenue', label:'수익현황'}, {key:'orders', label:'주문내역'}, {key:'users', label:'계정정보'},
+  {key:'sellreq', label:'매입신청'}, {key:'deposits', label:'입금확인'}, {key:'inventory', label:'재고관리'},
+  {key:'prices', label:'시세관리'}, {key:'accounts', label:'계좌관리'}, {key:'settings', label:'설정'},
+  {key:'notices', label:'공지사항'}, {key:'audit', label:'감사로그'}, {key:'system', label:'시스템'}
+];
+let currentView = 'revenue';
+let adminInfo = null, csrfToken = null;
+let sellFilter = '', depositFilter = 'pending';
+
+function won(n){ return '₩' + Math.round(n).toLocaleString('ko-KR'); }
+function fmtTime(iso){ return new Date(iso).toLocaleString('ko-KR'); }
+
+function toast(msg){
+  const box = document.getElementById('toastbox');
+  const el = document.createElement('div'); el.className='toast'; el.textContent = msg;
+  box.appendChild(el);
+  requestAnimationFrame(()=> el.classList.add('show'));
+  setTimeout(()=>{ el.classList.remove('show'); setTimeout(()=> el.remove(), 300); }, 2800);
+}
+
+async function api(path, opts){
+  opts = opts || {};
+  if(opts.method && opts.method !== 'GET'){
+    opts.headers = opts.headers || {};
+    if(csrfToken) opts.headers['X-CSRF-Token'] = csrfToken;
+  }
+  try{
+    const res = await fetch(path, opts);
+    const data = await res.json();
+    if(!res.ok){ toast(data.error || '오류가 발생했어요'); return null; }
+    return data;
+  }catch(e){
+    toast('서버에 연결할 수 없어요');
+    return null;
+  }
+}
+
+async function checkAdminSession(){
+  const r = await api('/api/admin/me');
+  if(r && r.admin){
+    adminInfo = r.admin; csrfToken = r.csrf_token;
+    document.getElementById('loginWrap').style.display = 'none';
+    document.getElementById('dashWrap').style.display = 'block';
+    document.getElementById('whoBox').textContent = adminInfo.username;
+    renderNav();
+    loadCurrentView();
+  } else {
+    document.getElementById('loginWrap').style.display = 'flex';
+    document.getElementById('dashWrap').style.display = 'none';
+  }
+}
+
+async function adminLogin(){
+  const username = document.getElementById('adminUsername').value.trim();
+  const password = document.getElementById('adminPassword').value;
+  const r = await api('/api/admin/login', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({username, password})});
+  if(r){ toast('로그인됐어요'); await checkAdminSession(); }
+}
+
+async function adminLogout(){
+  await api('/api/admin/logout', {method:'POST'});
+  await checkAdminSession();
+}
+
+function renderNav(){
+  const el = document.getElementById('navBtns'); el.innerHTML='';
+  NAV.forEach(n=>{
+    const b = document.createElement('button');
+    b.className = 'navbtn'+(currentView===n.key?' active':'');
+    b.textContent = n.label;
+    b.onclick = ()=>{ currentView=n.key; renderNav(); document.querySelectorAll('.view').forEach(v=>v.classList.remove('active')); document.getElementById('view-'+n.key).classList.add('active'); loadCurrentView(); };
+    el.appendChild(b);
+  });
+}
+
+function loadCurrentView(){
+  if(currentView==='revenue') loadRevenue();
+  if(currentView==='orders') loadOrders();
+  if(currentView==='users') loadUsers();
+  if(currentView==='sellreq') loadSellRequests();
+  if(currentView==='deposits') loadDeposits();
+  if(currentView==='inventory') loadInventory();
+  if(currentView==='prices') loadPrices();
+  if(currentView==='accounts') loadAccounts();
+  if(currentView==='settings') loadSettings();
+  if(currentView==='notices') loadAnnouncementsAdmin();
+  if(currentView==='audit') loadAudit();
+}
+
+// ---------------- CSV 내보내기 ----------------
+function downloadCSV(filename, rows){
+  const csv = rows.map(r => r.map(cell => {
+    const s = String(cell ?? '');
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+  }).join(',')).join('\n');
+  const blob = new Blob(['\uFEFF' + csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ---------------- 수익현황 ----------------
+function revenueCards(d){
+  return `
+    <div class="stat-card"><div class="l">매입 총액</div><div class="v">${won(d.buy_total)}</div></div>
+    <div class="stat-card"><div class="l">판매 총액</div><div class="v">${won(d.sell_total)}</div></div>
+    <div class="stat-card"><div class="l">스프레드 수익</div><div class="v">${won(d.spread)}</div></div>
+    <div class="stat-card"><div class="l">배송비 수익</div><div class="v">${won(d.delivery_fee)}</div></div>
+    <div class="stat-card"><div class="l">보관료 수익</div><div class="v">${won(d.storage_fee)}</div></div>
+    <div class="stat-card"><div class="l">총 수익</div><div class="v">${won(d.total_revenue)}</div></div>
+  `;
+}
+async function loadRevenue(){
+  const r = await api('/api/admin/revenue');
+  if(!r) return;
+  document.getElementById('revenueToday').innerHTML = revenueCards(r.today);
+  document.getElementById('revenueAll').innerHTML = revenueCards(r.all_time);
+}
+
+// ---------------- 주문내역 ----------------
+let lastOrdersData = [];
+async function loadOrders(){
+  const r = await api('/api/admin/orders');
+  if(!r) return;
+  lastOrdersData = r.orders;
+  const t = document.getElementById('ordersTable');
+  if(r.orders.length===0){ t.innerHTML = '<tr><td class="empty-state">주문 내역이 없어요</td></tr>'; return; }
+  t.innerHTML = `<tr><th>시각</th><th>이메일</th><th>구분</th><th>모델</th><th>등급</th><th>금액</th></tr>` +
+    r.orders.map(o=>`<tr>
+      <td class="mono">${fmtTime(o.ts)}</td><td>${o.email||'-'}</td>
+      <td>${o.label}</td><td>${o.model_key}</td><td>${o.grade}</td>
+      <td class="mono">${won(o.price)}</td>
+    </tr>`).join('');
+}
+function exportOrdersCSV(){
+  const rows = [['시각','이메일','구분','모델','등급','금액']];
+  lastOrdersData.forEach(o=> rows.push([o.ts,o.email||'-',o.label,o.model_key,o.grade,o.price]));
+  downloadCSV('orders.csv', rows);
+}
+
+// ---------------- 계정정보 ----------------
+let lastUsersData = [];
+async function loadUsers(){
+  const r = await api('/api/admin/users');
+  if(!r) return;
+  lastUsersData = r.users;
+  const t = document.getElementById('usersTable');
+  if(r.users.length===0){ t.innerHTML = '<tr><td class="empty-state">가입한 유저가 없어요</td></tr>'; return; }
+  t.innerHTML = `<tr><th>ID</th><th>이메일</th><th>가입일</th><th>잔액</th><th>보관중</th><th>거래횟수</th><th>상태</th><th></th></tr>` +
+    r.users.map(u=>`<tr>
+      <td class="mono">${u.id}</td><td>${u.email}</td><td class="mono">${fmtTime(u.created_at)}</td>
+      <td class="mono">${won(u.balance)}</td><td class="mono">${u.item_count}</td><td class="mono">${u.trade_count}</td>
+      <td>${u.is_suspended ? '<span class="pill rejected">정지됨</span>' : '<span class="pill approved">정상</span>'}</td>
+      <td><div class="btn-row">
+        <button class="btn" onclick="adjustBalance(${u.id})">잔액조정</button>
+        ${u.is_suspended
+          ? `<button class="btn mint" onclick="unsuspendUser(${u.id})">정지 해제</button>`
+          : `<button class="btn red" onclick="suspendUser(${u.id})">정지</button>`}
+      </div></td>
+    </tr>`).join('');
+}
+async function adjustBalance(id){
+  const amountStr = prompt('조정할 금액을 입력하세요 (더할 땐 양수, 뺄 땐 음수. 예: 50000 또는 -20000)');
+  if(amountStr===null) return;
+  const amount = parseFloat(amountStr);
+  if(isNaN(amount) || amount===0){ toast('올바른 금액을 입력해주세요'); return; }
+  const reason = prompt('사유를 입력하세요 (선택)') || '';
+  const r = await api(`/api/admin/users/${id}/adjust-balance`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({amount, reason})});
+  if(r){ toast(`잔액을 조정했어요 (새 잔액 ${won(r.new_balance)})`); loadUsers(); }
+}
+async function suspendUser(id){
+  if(!confirm('이 계정을 정지할까요? 로그인과 모든 거래가 막혀요.')) return;
+  const r = await api(`/api/admin/users/${id}/suspend`, {method:'POST'});
+  if(r){ toast('계정을 정지했어요'); loadUsers(); }
+}
+async function unsuspendUser(id){
+  const r = await api(`/api/admin/users/${id}/unsuspend`, {method:'POST'});
+  if(r){ toast('정지를 해제했어요'); loadUsers(); }
+}
+function exportUsersCSV(){
+  const rows = [['ID','이메일','가입일','잔액','보관중','거래횟수','상태']];
+  lastUsersData.forEach(u=> rows.push([u.id,u.email,u.created_at,u.balance,u.item_count,u.trade_count, u.is_suspended?'정지':'정상']));
+  downloadCSV('users.csv', rows);
+}
+
+// ---------------- 매입신청 관리 ----------------
+const SELL_TABS = [
+  {k:'', l:'전체'}, {k:'submitted', l:'접수'}, {k:'received', l:'수령완료'},
+  {k:'inspected', l:'검수완료'}, {k:'paid', l:'정산완료'}, {k:'rejected', l:'반려'}, {k:'cancelled', l:'취소'}
+];
+function renderSellFilterTabs(){
+  const el = document.getElementById('sellFilterTabs'); el.innerHTML='';
+  SELL_TABS.forEach(t=>{
+    const b = document.createElement('button');
+    b.className = sellFilter===t.k ? 'on' : '';
+    b.textContent = t.l;
+    b.onclick = ()=>{ sellFilter=t.k; renderSellFilterTabs(); loadSellRequests(); };
+    el.appendChild(b);
+  });
+}
+async function loadSellRequests(){
+  renderSellFilterTabs();
+  const q = sellFilter ? `?status=${sellFilter}` : '';
+  const r = await api('/api/admin/sell-requests'+q);
+  if(!r) return;
+  const panel = document.getElementById('sellReqPanel');
+  if(r.requests.length===0){ panel.innerHTML = '<div class="empty-state">해당 상태의 신청이 없어요</div>'; return; }
+  panel.innerHTML = r.requests.map(req=>{
+    let actions = '';
+    if(req.status==='submitted'){
+      actions = `<button class="btn mint" onclick="sellReceive(${req.id})">수령확인</button>
+                  <button class="btn red" onclick="sellReject(${req.id})">반려</button>`;
+    } else if(req.status==='received'){
+      actions = `<div class="inline-form">
+        <div class="field-label">최종 등급</div>
+        <div class="btn-row" style="margin-bottom:8px;">
+          ${['S','A','B','C'].map(g=>`<button class="btn" onclick="setInspectGrade(${req.id},'${g}')" id="grade-${req.id}-${g}">${g}급</button>`).join('')}
+        </div>
+        <input class="auth-input" id="note-${req.id}" placeholder="검수 메모 (선택)">
+        <div class="btn-row">
+          <button class="btn mint" onclick="sellInspect(${req.id})">검수 확정</button>
+          <button class="btn red" onclick="sellReject(${req.id})">반려</button>
+        </div>
+      </div>`;
+    } else if(req.status==='inspected'){
+      actions = `<button class="btn mint" onclick="sellPayout(${req.id})">정산 승인 (${won(req.final_price)} 지급)</button>
+                  <button class="btn red" onclick="sellReject(${req.id})">반려</button>`;
+    }
+    return `<div style="padding:12px 0; border-bottom:1px solid var(--border-soft);">
+      <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px;">
+        <span><span class="pill ${req.status}">${req.status}</span> #${req.id} · ${req.email||'-'} · ${req.model_key} · 자가등급 ${req.self_grade}급</span>
+        <span class="mono" style="font-size:11px; color:var(--text-dim);">${fmtTime(req.created_at)}</span>
+      </div>
+      <div style="font-size:12px; color:var(--text-muted); margin-top:6px;">예상가 ${won(req.estimated_price)}${req.final_price?` · 최종가 ${won(req.final_price)} (${req.final_grade}급)`:''}${req.note?` · 메모: ${req.note}`:''}${req.admin_note?` · 관리자메모: ${req.admin_note}`:''}</div>
+      <div style="margin-top:8px;">${actions}</div>
+    </div>`;
+  }).join('');
+}
+let pendingInspectGrade = {};
+function setInspectGrade(id, g){
+  pendingInspectGrade[id] = g;
+  ['S','A','B','C'].forEach(x=>{
+    const el = document.getElementById(`grade-${id}-${x}`);
+    if(el) el.className = x===g ? 'btn mint' : 'btn';
+  });
+}
+async function sellReceive(id){
+  const r = await api(`/api/admin/sell-requests/${id}/receive`, {method:'POST'});
+  if(r){ toast('수령확인 처리했어요'); loadSellRequests(); }
+}
+async function sellInspect(id){
+  const grade = pendingInspectGrade[id];
+  if(!grade){ toast('최종 등급을 선택해주세요'); return; }
+  const note = document.getElementById(`note-${id}`).value;
+  const r = await api(`/api/admin/sell-requests/${id}/inspect`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({final_grade:grade, admin_note:note})});
+  if(r){ toast(`검수 확정 · 최종가 ${won(r.final_price)}`); loadSellRequests(); }
+}
+async function sellPayout(id){
+  const r = await api(`/api/admin/sell-requests/${id}/payout`, {method:'POST'});
+  if(r){ toast(`정산 완료 · ${won(r.paid)} 지급`); loadSellRequests(); loadRevenue(); }
+}
+async function sellReject(id){
+  const reason = prompt('반려 사유를 입력해주세요 (선택)') || '';
+  const r = await api(`/api/admin/sell-requests/${id}/reject`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({reason})});
+  if(r){ toast('반려 처리했어요'); loadSellRequests(); }
+}
+
+// ---------------- 입금확인 ----------------
+const DEP_TABS = [{k:'pending',l:'대기중'},{k:'approved',l:'승인됨'},{k:'rejected',l:'거절됨'},{k:'',l:'전체'}];
+function renderDepositFilterTabs(){
+  const el = document.getElementById('depositFilterTabs'); el.innerHTML='';
+  DEP_TABS.forEach(t=>{
+    const b = document.createElement('button');
+    b.className = depositFilter===t.k ? 'on' : '';
+    b.textContent = t.l;
+    b.onclick = ()=>{ depositFilter=t.k; renderDepositFilterTabs(); loadDeposits(); };
+    el.appendChild(b);
+  });
+}
+async function loadDeposits(){
+  renderDepositFilterTabs();
+  const q = depositFilter ? `?status=${depositFilter}` : '';
+  const r = await api('/api/admin/deposits'+q);
+  if(!r) return;
+  const panel = document.getElementById('depositsPanel');
+  if(r.deposits.length===0){ panel.innerHTML = '<div class="empty-state">해당 상태의 요청이 없어요</div>'; return; }
+  panel.innerHTML = r.deposits.map(d=>`
+    <div style="padding:12px 0; border-bottom:1px solid var(--border-soft); display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+      <span><span class="pill ${d.status}">${d.status}</span> ${d.email||'-'} · ${won(d.amount)} · 참조코드 <b class="mono">${d.reference_code}</b><br>
+        <span style="font-size:11px; color:var(--text-dim);">입금계좌: ${d.bank_name} ${d.account_number} (${d.holder_name}) · ${fmtTime(d.created_at)}</span>
+      </span>
+      ${d.status==='pending' ? `<span class="btn-row"><button class="btn mint" onclick="depositApprove(${d.id})">입금확인·승인</button><button class="btn red" onclick="depositReject(${d.id})">거절</button></span>` : ''}
+    </div>
+  `).join('');
+}
+async function depositApprove(id){
+  const r = await api(`/api/admin/deposits/${id}/approve`, {method:'POST'});
+  if(r){ toast('입금 승인 완료'); loadDeposits(); }
+}
+async function depositReject(id){
+  const r = await api(`/api/admin/deposits/${id}/reject`, {method:'POST'});
+  if(r){ toast('거절 처리했어요'); loadDeposits(); }
+}
+
+// ---------------- 계좌관리 ----------------
+async function loadAccounts(){
+  const r = await api('/api/admin/bank-accounts');
+  if(!r) return;
+  const panel = document.getElementById('accountsPanel');
+  panel.innerHTML = r.accounts.map(a=>`
+    <div style="padding:10px 0; border-bottom:1px solid var(--border-soft); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+      <span>${a.is_active ? '<span class="pill approved">사용중</span>' : '<span class="pill submitted">비활성</span>'} ${a.bank_name} ${a.account_number} (${a.holder_name})</span>
+      ${!a.is_active ? `<button class="btn mint" onclick="activateAccount(${a.id})">활성화</button>` : ''}
+    </div>
+  `).join('');
+}
+async function addBankAccount(){
+  const bank_name = document.getElementById('newBankName').value.trim();
+  const account_number = document.getElementById('newAccNumber').value.trim();
+  const holder_name = document.getElementById('newHolderName').value.trim();
+  const r = await api('/api/admin/bank-accounts', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({bank_name, account_number, holder_name})});
+  if(r){ toast('계좌를 추가했어요'); document.getElementById('newBankName').value=''; document.getElementById('newAccNumber').value=''; document.getElementById('newHolderName').value=''; loadAccounts(); }
+}
+async function activateAccount(id){
+  const r = await api(`/api/admin/bank-accounts/${id}/activate`, {method:'POST'});
+  if(r){ toast('활성 계좌를 변경했어요'); loadAccounts(); }
+}
+
+// ---------------- 재고 관리 ----------------
+const GRADE_ORDER = ['S','A','B','C'];
+async function loadInventory(){
+  const r = await api('/api/admin/inventory');
+  if(!r) return;
+  const panel = document.getElementById('inventoryPanel');
+  panel.innerHTML = `
+    <table>
+      <tr><th>모델</th>${GRADE_ORDER.map(g=>`<th>${g}급</th>`).join('')}</tr>
+      ${r.inventory.map(m=>`
+        <tr>
+          <td>${m.name}<br><span style="color:var(--text-dim); font-size:10.5px;">${m.code}</span></td>
+          ${GRADE_ORDER.map(g=>{
+            const qty = m.stock[g] ?? 0;
+            const color = qty===0 ? 'var(--red)' : (qty<=1 ? 'var(--amber)' : 'var(--mint)');
+            return `<td>
+              <input type="number" min="0" value="${qty}" id="stock-${m.key}-${g}"
+                style="width:60px; background:var(--bg-input); border:1px solid var(--border); color:${color};
+                       font-family:var(--font-mono); font-weight:700; border-radius:6px; padding:5px; text-align:center;">
+              <button class="btn" style="padding:5px 8px;" onclick="saveStock('${m.key}','${g}')">저장</button>
+            </td>`;
+          }).join('')}
+        </tr>
+      `).join('')}
+    </table>
+    <div class="empty-state" style="text-align:left; padding:14px 0 0;">
+      🔴 재고 0개 · 🟡 1개 이하(품절 임박) · 🟢 충분 — 매입 신청이 정산되면 해당 등급 재고가 자동으로 1개씩 늘어나요.
+    </div>
+  `;
+}
+async function saveStock(model, grade){
+  const qty = parseInt(document.getElementById(`stock-${model}-${grade}`).value);
+  const r = await api('/api/admin/inventory/set', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({model, grade, qty})});
+  if(r){ toast('재고를 저장했어요'); loadInventory(); }
+}
+
+// ---------------- 시세(차트) 관리 ----------------
+async function loadPrices(){
+  const r = await fetch('/api/state').then(res=>res.json()).catch(()=>null);
+  if(!r) return;
+  const panel = document.getElementById('pricesPanel');
+  panel.innerHTML = Object.entries(r.models).map(([key,m])=>`
+    <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; padding:10px 0; border-bottom:1px solid var(--border-soft);">
+      <span>${m.name}<br><span style="color:var(--text-dim); font-size:10.5px;">${m.code} · 현재 ${won(m.mid)}</span></span>
+      <span class="btn-row">
+        <input class="auth-input" style="width:120px; margin-bottom:0;" id="mid-${key}" value="${m.mid}">
+        <button class="btn mint" onclick="saveMid('${key}')">차트에 반영</button>
+      </span>
+    </div>
+  `).join('') + `<div class="empty-state" style="text-align:left; padding:14px 0 0;">여기서 입력한 값이 새 시세 포인트로 차트에 즉시 추가돼요. 실제 거래·외부 참고시세와 무관하게 관리자가 직접 조정하는 값이에요.</div>`;
+}
+async function saveMid(key){
+  const mid = parseFloat(document.getElementById(`mid-${key}`).value);
+  if(isNaN(mid) || mid<=0){ toast('올바른 시세를 입력해주세요'); return; }
+  const r = await api(`/api/admin/models/${key}/set-mid`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({mid})});
+  if(r){ toast('시세를 반영했어요'); loadPrices(); }
+}
+
+// ---------------- 공지사항 관리 ----------------
+async function loadAnnouncementsAdmin(){
+  const r = await fetch('/api/announcements').then(res=>res.json()).catch(()=>null);
+  const panel = document.getElementById('announcementsPanel');
+  if(!r || r.announcements.length===0){ panel.innerHTML = '<div class="empty-state">등록된 공지가 없어요</div>'; return; }
+  panel.innerHTML = r.announcements.map(a=>`
+    <div style="padding:12px 0; border-bottom:1px solid var(--border-soft); display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+      <span><b>${a.pinned?'📌 ':''}${a.title}</b><br><span style="font-size:12px; color:var(--text-muted);">${a.body||''}</span></span>
+      <button class="btn red" onclick="deleteAnnouncement(${a.id})">삭제</button>
+    </div>
+  `).join('');
+}
+async function createAnnouncement(){
+  const title = document.getElementById('newAnnTitle').value.trim();
+  const body = document.getElementById('newAnnBody').value.trim();
+  const pinned = document.getElementById('newAnnPinned').checked;
+  if(!title){ toast('제목을 입력해주세요'); return; }
+  const r = await api('/api/admin/announcements', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({title, body, pinned})});
+  if(r){
+    toast('공지를 등록했어요');
+    document.getElementById('newAnnTitle').value=''; document.getElementById('newAnnBody').value=''; document.getElementById('newAnnPinned').checked=false;
+    loadAnnouncementsAdmin();
+  }
+}
+async function deleteAnnouncement(id){
+  if(!confirm('이 공지를 삭제할까요?')) return;
+  const r = await api(`/api/admin/announcements/${id}`, {method:'DELETE'});
+  if(r){ toast('삭제했어요'); loadAnnouncementsAdmin(); }
+}
+
+// ---------------- 운영 설정 ----------------
+const SETTINGS_META = [
+  {k:'buy_spread', l:'매입 스프레드', unit:'%', mult:100, hint:'시세보다 이만큼 낮게 매입해요 (예: 4.5)'},
+  {k:'sell_markup', l:'판매 마진', unit:'%', mult:100, hint:'시세보다 이만큼 높게 판매해요 (예: 6)'},
+  {k:'storage_free_days', l:'보관 무료 기간', unit:'일', mult:1, hint:''},
+  {k:'storage_fee_per_month', l:'보관료(월)', unit:'원', mult:1, hint:''},
+  {k:'delivery_base_fee', l:'배송 기본료', unit:'원', mult:1, hint:'포장비 포함'},
+  {k:'remote_surcharge', l:'제주/도서산간 할증', unit:'원', mult:1, hint:''},
+  {k:'tick_seconds', l:'시세 갱신 주기', unit:'초', mult:1, hint:'운영에서는 하루 3회 수준(예: 28800초)을 권장해요'},
+];
+let currentSettings = {};
+async function loadSettings(){
+  const r = await api('/api/admin/settings');
+  if(!r) return;
+  currentSettings = r.settings;
+  const panel = document.getElementById('settingsPanel');
+  panel.innerHTML = SETTINGS_META.map(s=>{
+    const displayVal = s.mult===100 ? (currentSettings[s.k]*100).toFixed(2) : currentSettings[s.k];
+    return `
+      <div style="margin-bottom:14px;">
+        <div class="field-label">${s.l} (${s.unit})</div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <input class="auth-input" style="margin-bottom:0; max-width:160px;" id="setting-${s.k}" value="${displayVal}">
+          <span style="font-size:11px; color:var(--text-dim);">${s.hint}</span>
+        </div>
+      </div>`;
+  }).join('') + `<button class="btn mint" onclick="saveSettings()">전체 저장</button>`;
+}
+async function saveSettings(){
+  const payload = {};
+  SETTINGS_META.forEach(s=>{
+    const raw = parseFloat(document.getElementById(`setting-${s.k}`).value);
+    if(!isNaN(raw)) payload[s.k] = s.mult===100 ? raw/100 : raw;
+  });
+  const r = await api('/api/admin/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+  if(r){ toast('설정을 저장했어요'); loadSettings(); }
+}
+
+// ---------------- 감사로그 ----------------
+async function loadAudit(){
+  const r = await api('/api/admin/audit-log');
+  if(!r) return;
+  const t = document.getElementById('auditTable');
+  if(r.logs.length===0){ t.innerHTML = '<tr><td class="empty-state">기록이 없어요</td></tr>'; return; }
+  t.innerHTML = `<tr><th>시각</th><th>주체</th><th>행위자</th><th>액션</th><th>상세</th><th>IP</th></tr>` +
+    r.logs.map(l=>`<tr>
+      <td class="mono">${fmtTime(l.ts)}</td><td>${l.actor_type}</td><td>${l.actor}</td>
+      <td>${l.action}</td><td>${l.detail||''}</td><td class="mono">${l.ip||''}</td>
+    </tr>`).join('');
+}
+
+// ---------------- 시스템 ----------------
+async function tickNow(){
+  const r = await api('/api/tick_now', {method:'POST'});
+  if(r) toast('시세를 갱신했어요');
+}
+async function resetAll(){
+  if(!confirm('정말로 전체 데이터베이스를 초기화할까요?\\n모든 회원·거래·잔액 정보가 삭제되고 되돌릴 수 없어요.')) return;
+  if(!confirm('한 번 더 확인할게요. 정말 진행할까요?')) return;
+  const r = await api('/api/reset', {method:'POST'});
+  if(r){ toast('초기화됐어요'); await checkAdminSession(); }
+}
+
+checkAdminSession();
+</script>
+</body>
+</html>
