@@ -1,0 +1,6 @@
+.env
+market.db
+__pycache__/
+*.pyc
+server.log
+cookies.txt
