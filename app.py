@@ -6,10 +6,11 @@ AIRMRKT 백엔드 API 서버
 
 실행: python app.py  ->  http://localhost:5000
 """
-import sqlite3, time, random, threading, os, uuid, re, smtplib, secrets
+import sqlite3, time, random, threading, os, uuid, re, smtplib, secrets, queue, json, base64
+import requests
 from datetime import datetime, timezone, timedelta
 from email.mime.text import MIMEText
-from flask import Flask, jsonify, request, session
+from flask import Flask, jsonify, request, session, Response, stream_with_context
 from werkzeug.security import generate_password_hash, check_password_hash
 
 DB_PATH = os.path.join(os.path.dirname(__file__), 'market.db')
@@ -48,6 +49,16 @@ CODE_TTL_MINUTES = 5
 CODE_RESEND_COOLDOWN_SECONDS = 60
 CODE_MAX_ATTEMPTS = 5
 EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+
+# --- 토스페이먼츠(카드/간편결제) 연동 설정 ---
+# 아래 기본값은 토스페이먼츠 문서(docs.tosspayments.com)에 공개된 "결제창(Payment Window) V1"
+# 범용 테스트 키입니다. 실 서비스에서는 반드시 본인 상점의 키로 교체하세요
+# (developers.tosspayments.com 가입 -> 개발자센터 -> API 키).
+# ⚠️ 이 샌드박스는 외부 네트워크가 차단되어 있어 아래 키로 실제 결제 승인 API를 호출하는 부분은
+# 여기서 검증하지 못했습니다. 표준 문서에 나온 요청 형식 그대로 구현했습니다.
+TOSS_CLIENT_KEY = os.environ.get('TOSS_CLIENT_KEY', 'test_ck_D5GePWvyJnrK0W0k6q8gLzN97Eoq')
+TOSS_SECRET_KEY = os.environ.get('TOSS_SECRET_KEY', 'test_sk_zXLkKEypNArWmo50nX3lmeaxYG5R')
+TOSS_API_BASE = 'https://api.tosspayments.com/v1'
 
 MODEL_DEFAULTS = {
     'pro1': {'code': 'PRO1', 'name': 'AirPods Pro 1세대', 'ratios': {'S': 1.27, 'A': 1.00, 'B': 0.77, 'C': 0.55}, 'mid': 80000,  'floor': 45000,  'ceil': 120000},
@@ -245,6 +256,24 @@ def init_db(force=False):
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         title TEXT, body TEXT, pinned INTEGER DEFAULT 0, created_at TEXT
     );
+    CREATE TABLE IF NOT EXISTS reservations(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER, model_key TEXT, grade TEXT, created_at TEXT,
+        UNIQUE(user_id, model_key, grade)
+    );
+    CREATE TABLE IF NOT EXISTS reviews(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER, trade_id INTEGER UNIQUE, model_key TEXT, grade TEXT,
+        rating INTEGER, comment TEXT, created_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS business_info(
+        key TEXT PRIMARY KEY, value TEXT
+    );
+    CREATE TABLE IF NOT EXISTS pg_orders(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER, order_id TEXT UNIQUE, amount REAL,
+        status TEXT DEFAULT 'pending', created_at TEXT, paid_at TEXT
+    );
     ''')
     # 기존 DB(이 컬럼이 추가되기 전에 만들어진 market.db)를 위한 간단한 마이그레이션
     try:
@@ -255,9 +284,26 @@ def init_db(force=False):
         c.execute('ALTER TABLE users ADD COLUMN payment_pin_hash TEXT')
     except sqlite3.OperationalError:
         pass
+    try:
+        c.execute('ALTER TABLE models ADD COLUMN is_active INTEGER DEFAULT 1')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE models ADD COLUMN drop_start TEXT')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE models ADD COLUMN drop_end TEXT')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE portfolio ADD COLUMN risk_notified INTEGER DEFAULT 0')
+    except sqlite3.OperationalError:
+        pass
     if fresh:
         for k, m in MODEL_DEFAULTS.items():
-            c.execute('INSERT INTO models VALUES (?,?,?,?,?,?,?,?,?,?,0)',
+            c.execute('''INSERT INTO models(key,code,name,ratio_s,ratio_a,ratio_b,ratio_c,mid,floor_p,ceil_p,
+                         internal_trade_count,is_active,drop_start,drop_end) VALUES (?,?,?,?,?,?,?,?,?,?,0,1,NULL,NULL)''',
                       (k, m['code'], m['name'], m['ratios']['S'], m['ratios']['A'],
                        m['ratios']['B'], m['ratios']['C'], m['mid'], m['floor'], m['ceil']))
             v = m['mid'] * random.uniform(0.96, 0.98)
@@ -284,22 +330,33 @@ def init_db(force=False):
             print('=' * 60)
         c.execute('INSERT INTO announcements(title,body,pinned,created_at) VALUES (?,?,1,?)',
                   ('콩나물에 오신 걸 환영해요 🌱', '검수완료 에어팟을 안심하고 사고팔 수 있는 곳, 콩나물이에요. 궁금한 점은 언제든 문의해주세요.', now_iso()))
+        biz_defaults = {
+            'company_name': '콩나물(예시 상호명 - 실제 상호로 변경하세요)',
+            'ceo_name': '홍길동',
+            'biz_reg_no': '000-00-00000',
+            'mail_order_no': '제0000-서울강남-00000호',
+            'address': '서울특별시 강남구 테헤란로 000 (실제 주소로 변경하세요)',
+            'phone': '02-0000-0000',
+            'email': 'help@example.com',
+        }
+        for k, v in biz_defaults.items():
+            c.execute('INSERT INTO business_info(key,value) VALUES (?,?)', (k, v))
     conn.commit()
     conn.close()
 
 
-def send_verification_email(to_email, code):
+def send_email(to_email, subject, body):
     """
     SMTP_HOST/SMTP_USER/SMTP_PASS 환경변수가 설정되어 있으면 실제로 이메일을 발송합니다.
     설정되어 있지 않으면 DEV_MODE로 서버 콘솔에만 출력합니다 (로컬 테스트용).
     반환값: (sent: bool, mode: 'sent'|'dev_mode'|'error')
     """
     if DEV_MODE:
-        print(f'[DEV MODE] {to_email} 로 보낼 인증코드: {code}  (실제 발송하려면 SMTP_HOST/SMTP_USER/SMTP_PASS 환경변수를 설정하세요)')
+        print(f'[DEV MODE] {to_email} 로 보낼 메일 [{subject}]: {body}')
         return False, 'dev_mode'
     try:
-        msg = MIMEText(f'콩나물 인증코드: {code}\n{CODE_TTL_MINUTES}분 이내에 입력해주세요.')
-        msg['Subject'] = '[콩나물] 이메일 인증코드'
+        msg = MIMEText(body)
+        msg['Subject'] = subject
         msg['From'] = SMTP_USER
         msg['To'] = to_email
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
@@ -310,6 +367,10 @@ def send_verification_email(to_email, code):
     except Exception as e:
         print('이메일 발송 실패:', e)
         return False, 'error'
+
+
+def send_verification_email(to_email, code):
+    return send_email(to_email, '[콩나물] 이메일 인증코드', f'콩나물 인증코드: {code}\n{CODE_TTL_MINUTES}분 이내에 입력해주세요.')
 
 
 def generate_code():
@@ -422,6 +483,47 @@ def write_audit(actor_type, actor, action, detail=''):
     conn.commit(); conn.close()
 
 
+# ---------------- 실시간 알림 (Server-Sent Events) ----------------
+# 이 샌드박스에는 Flask-SocketIO/eventlet 같은 웹소켓 라이브러리를 설치할 수 없어서(외부 네트워크 차단),
+# 순수 Flask만으로 되는 SSE(Server-Sent Events)로 "실시간 알림"을 구현했습니다.
+# 웹소켓과 달리 서버->클라이언트 단방향이지만, 알림 용도로는 충분하고 별도 라이브러리가 필요 없어요.
+_sse_subscribers = {}       # user_id -> [queue.Queue, ...]
+_sse_lock = threading.Lock()
+
+def sse_subscribe(user_id):
+    q = queue.Queue()
+    with _sse_lock:
+        _sse_subscribers.setdefault(user_id, []).append(q)
+    return q
+
+def sse_unsubscribe(user_id, q):
+    with _sse_lock:
+        if user_id in _sse_subscribers:
+            try:
+                _sse_subscribers[user_id].remove(q)
+            except ValueError:
+                pass
+            if not _sse_subscribers[user_id]:
+                del _sse_subscribers[user_id]
+
+def push_notification(user_id, event_type, message, extra=None):
+    payload = {'type': event_type, 'message': message}
+    if extra:
+        payload.update(extra)
+    with _sse_lock:
+        for q in _sse_subscribers.get(user_id, []):
+            q.put(payload)
+
+def broadcast_notification(event_type, message, extra=None):
+    payload = {'type': event_type, 'message': message}
+    if extra:
+        payload.update(extra)
+    with _sse_lock:
+        for qs in _sse_subscribers.values():
+            for q in qs:
+                q.put(payload)
+
+
 def current_admin_id():
     return session.get('admin_id')
 
@@ -486,6 +588,27 @@ def do_tick():
         key = random.choice(list(MODEL_DEFAULTS.keys()))
         grade = random.choice(GRADES)
         c.execute('UPDATE stock SET qty=qty+1 WHERE model_key=? AND grade=?', (key, grade))
+
+    # 보관료가 물건 가치를 위협할 만큼 쌓인 사용자에게 알림 (레벨 1: 70%↑, 레벨 2: 100%↑)
+    for item in c.execute('SELECT p.*, u.email FROM portfolio p JOIN users u ON p.user_id=u.id').fetchall():
+        fee = calc_storage_fee(item['ts'])
+        if fee <= 0:
+            continue
+        model_row = c.execute('SELECT * FROM models WHERE key=?', (item['model_key'],)).fetchone()
+        if not model_row:
+            continue
+        value = price_for(model_row, item['grade'], 'buy')
+        ratio = (fee / value) if value > 0 else 0
+        level = 2 if ratio >= 1.0 else (1 if ratio >= 0.7 else 0)
+        if level > 0 and level > (item['risk_notified'] or 0):
+            subject = '[콩나물] 보관료가 물건 가치를 넘었어요' if level == 2 else '[콩나물] 보관 중인 물건을 확인해주세요'
+            body = (f'{item["model_key"]} {item["grade"]}급 보관 아이템의 누적 보관료가 {int(fee):,}원이에요.\n'
+                    f'현재 매도가({int(value):,}원) 대비 {int(ratio*100)}% 수준이라, 계속 두면 매도해도 남는 돈이 '
+                    f'{"거의 없거나 오히려 손해" if level==2 else "많이 줄어들"} 수 있어요.\n'
+                    f'지금 매도하거나 배송 신청을 해서 손해를 막아주세요.')
+            send_email(item['email'], subject, body)
+            c.execute('UPDATE portfolio SET risk_notified=? WHERE id=?', (level, item['id']))
+
     conn.commit()
     conn.close()
     LAST_TICK = time.time()
@@ -517,8 +640,9 @@ def api_state():
         models[m['key']] = {
             'code': m['code'], 'name': m['name'], 'mid': m['mid'], 'history': hist,
             'stock': stock, 'prices': prices,
-            'external_ref': {'avg': ref['avg'], 'note': ref['note'], 'updated_at': ref['updated_at']},
+            'external_ref': {'avg': ref['avg'], 'note': ref['note'], 'updated_at': ref['updated_at']} if ref else {'avg': m['mid'], 'note': '', 'updated_at': ''},
             'internal_weight_pct': round((1 - external_weight(m['internal_trade_count'])) * 100),
+            'drop_start': m['drop_start'], 'drop_end': m['drop_end'], 'is_active': bool(m['is_active']),
         }
     feed = [dict(r) for r in c.execute(
         'SELECT model_key,grade,side,price,label,ts FROM trades ORDER BY id DESC LIMIT 10').fetchall()]
@@ -545,6 +669,10 @@ def api_state():
                 if stored_at.tzinfo is None:
                     stored_at = stored_at.replace(tzinfo=timezone.utc)
                 item['days_stored'] = int((datetime.now(timezone.utc) - stored_at).total_seconds() // 86400)
+                current_value = models.get(item['model_key'], {}).get('prices', {}).get(item['grade'], {}).get('buy', 0)
+                ratio = (item['storage_fee'] / current_value) if current_value > 0 else 0
+                item['risk_level'] = 2 if ratio >= 1.0 else (1 if ratio >= 0.7 else 0)
+                item['current_value'] = current_value
                 portfolio.append(item)
 
     stats = dict(c.execute('SELECT * FROM stats WHERE id=1').fetchone())
@@ -732,6 +860,33 @@ def api_pin_status():
     return jsonify({'has_pin': bool(row and row['payment_pin_hash'])})
 
 
+@app.route('/api/stream')
+def api_stream():
+    uid = current_user_id()
+    if not uid:
+        return jsonify({'error': '로그인이 필요해요'}), 401
+    q = sse_subscribe(uid)
+
+    @stream_with_context
+    def gen():
+        try:
+            yield 'retry: 3000\ndata: {"type":"connected"}\n\n'
+            while True:
+                try:
+                    payload = q.get(timeout=15)
+                    yield f'data: {json.dumps(payload, ensure_ascii=False)}\n\n'
+                except queue.Empty:
+                    yield ': keepalive\n\n'
+        finally:
+            sse_unsubscribe(uid, q)
+
+    return Response(gen(), mimetype='text/event-stream', headers={
+        'Cache-Control': 'no-cache',
+        'X-Accel-Buffering': 'no',
+        'Connection': 'keep-alive',
+    })
+
+
 @app.route('/api/auth/set-pin', methods=['POST'])
 @login_required
 @csrf_protect
@@ -751,6 +906,7 @@ def api_set_pin():
 @app.route('/api/trade', methods=['POST'])
 @login_required
 @csrf_protect
+@rate_limit(15, 10)  # 같은 IP에서 10초에 15회까지 (드랍 순간 연타 방어)
 def api_trade():
     uid = current_user_id()
     data = request.get_json(force=True)
@@ -770,9 +926,13 @@ def api_trade():
         ok, err = verify_pin(uid, data.get('pin'))
         if not ok:
             conn.close(); return jsonify({'error': err}), 403
-        stockrow = c.execute('SELECT qty FROM stock WHERE model_key=? AND grade=?', (model_key, grade)).fetchone()
-        if not stockrow or stockrow['qty'] <= 0:
-            conn.close(); return jsonify({'error': '품절'}), 400
+        # 드랍(판매 시간창)이 설정되어 있으면 그 시간 안에서만 구매 허용
+        if m['drop_start'] or m['drop_end']:
+            now = datetime.now(timezone.utc)
+            if m['drop_start'] and now < datetime.fromisoformat(m['drop_start']):
+                conn.close(); return jsonify({'error': '아직 판매 시작 전이에요', 'drop_start': m['drop_start']}), 400
+            if m['drop_end'] and now > datetime.fromisoformat(m['drop_end']):
+                conn.close(); return jsonify({'error': '판매 시간이 종료됐어요'}), 400
         price = price_for(m, grade, 'sell')
         delivery_fee = 0
         if delivery == 'delivery':
@@ -781,8 +941,17 @@ def api_trade():
         wallet_row = c.execute('SELECT balance FROM wallet WHERE user_id=?', (uid,)).fetchone()
         if not wallet_row or wallet_row['balance'] < total:
             conn.close(); return jsonify({'error': '잔액 부족'}), 400
-        c.execute('UPDATE wallet SET balance=balance-? WHERE user_id=?', (total, uid))
-        c.execute('UPDATE stock SET qty=qty-1 WHERE model_key=? AND grade=?', (model_key, grade))
+        # 재고 차감은 SELECT 후 UPDATE가 아니라 '조건부 UPDATE' 한 번으로 원자적으로 처리해요.
+        # 이래야 드랍 순간 수백 명이 동시에 눌러도 재고가 마이너스로 내려가거나 이중판매되지 않아요.
+        c.execute('UPDATE stock SET qty=qty-1 WHERE model_key=? AND grade=? AND qty>0', (model_key, grade))
+        if c.rowcount == 0:
+            conn.close(); return jsonify({'error': '방금 품절됐어요'}), 400
+        c.execute('UPDATE wallet SET balance=balance-? WHERE user_id=? AND balance>=?', (total, uid, total))
+        if c.rowcount == 0:
+            # 잔액 재확인 실패 시 방금 차감한 재고를 되돌려요 (동시 요청으로 인한 드문 경합 대비)
+            c.execute('UPDATE stock SET qty=qty+1 WHERE model_key=? AND grade=?', (model_key, grade))
+            conn.commit(); conn.close()
+            return jsonify({'error': '잔액 부족'}), 400
         c.execute('INSERT INTO trades(user_id,model_key,grade,side,price,label,ts,pending) VALUES (?,?,?,?,?,?,?,1)',
                    (uid, model_key, grade, 'sell_to_user', price, '구매체결', ts))
         c.execute('UPDATE models SET internal_trade_count=internal_trade_count+1 WHERE key=?', (model_key,))
@@ -950,6 +1119,92 @@ def api_deposit_my():
     return jsonify({'requests': rows})
 
 
+# ---------------- 카드/간편결제 충전 (토스페이먼츠) ----------------
+
+@app.route('/api/pg/config')
+def api_pg_config():
+    return jsonify({'client_key': TOSS_CLIENT_KEY})
+
+
+@app.route('/api/pg/create-order', methods=['POST'])
+@login_required
+@csrf_protect
+@rate_limit(10, 300)
+def api_pg_create_order():
+    uid = current_user_id()
+    data = request.get_json(force=True)
+    try:
+        amount = int(float(data.get('amount')))
+    except (TypeError, ValueError):
+        return jsonify({'error': '금액이 올바르지 않아요'}), 400
+    if amount < 1000 or amount > 5000000:
+        return jsonify({'error': '1회 결제는 1,000원 이상 5,000,000원 이하로 요청해주세요'}), 400
+    order_id = 'kn' + uuid.uuid4().hex[:20]
+    conn = get_db(); c = conn.cursor()
+    c.execute('INSERT INTO pg_orders(user_id,order_id,amount,status,created_at) VALUES (?,?,?,?,?)',
+              (uid, order_id, amount, 'pending', now_iso()))
+    conn.commit(); conn.close()
+    return jsonify({
+        'ok': True, 'order_id': order_id, 'amount': amount, 'client_key': TOSS_CLIENT_KEY,
+        'order_name': '콩나물 잔액 충전',
+    })
+
+
+@app.route('/api/pg/success')
+def api_pg_success():
+    """토스페이먼츠 결제창의 successUrl. 결제수단 인증까지만 끝난 상태라, 여기서 최종 승인 API를 호출해야 결제가 완료돼요."""
+    payment_key = request.args.get('paymentKey')
+    order_id = request.args.get('orderId')
+    amount = request.args.get('amount')
+    conn = get_db(); c = conn.cursor()
+    order = c.execute('SELECT * FROM pg_orders WHERE order_id=?', (order_id,)).fetchone()
+    if not order or order['status'] != 'pending':
+        conn.close()
+        return f'<script>location.href="/?pg=fail&message=처리할 수 없는 주문이에요"</script>'
+    try:
+        if int(float(amount)) != int(order['amount']):
+            conn.close()
+            return f'<script>location.href="/?pg=fail&message=결제 금액이 일치하지 않아요"</script>'
+    except (TypeError, ValueError):
+        conn.close()
+        return f'<script>location.href="/?pg=fail&message=잘못된 요청이에요"</script>'
+
+    auth = base64.b64encode(f'{TOSS_SECRET_KEY}:'.encode()).decode()
+    try:
+        resp = requests.post(
+            f'{TOSS_API_BASE}/payments/confirm',
+            json={'paymentKey': payment_key, 'orderId': order_id, 'amount': order['amount']},
+            headers={'Authorization': f'Basic {auth}', 'Content-Type': 'application/json'},
+            timeout=10,
+        )
+    except requests.RequestException as e:
+        conn.close()
+        return f'<script>location.href="/?pg=fail&message=결제 서버 통신 오류"</script>'
+
+    if resp.status_code == 200:
+        c.execute('UPDATE wallet SET balance=balance+? WHERE user_id=?', (order['amount'], order['user_id']))
+        c.execute('UPDATE pg_orders SET status=?, paid_at=? WHERE order_id=?', ('paid', now_iso(), order_id))
+        conn.commit(); conn.close()
+        push_notification(order['user_id'], 'pg_paid', f'카드 결제로 {int(order["amount"]):,}원이 충전됐어요.', {'wallet_changed': True})
+        return f'<script>location.href="/?pg=success&amount={order["amount"]}"</script>'
+    else:
+        c.execute('UPDATE pg_orders SET status=? WHERE order_id=?', ('failed', order_id))
+        conn.commit(); conn.close()
+        err = resp.json().get('message', '결제 승인에 실패했어요') if resp.headers.get('content-type', '').startswith('application/json') else '결제 승인에 실패했어요'
+        return f'<script>location.href="/?pg=fail&message={err}"</script>'
+
+
+@app.route('/api/pg/fail')
+def api_pg_fail():
+    order_id = request.args.get('orderId')
+    message = request.args.get('message', '결제가 취소됐어요')
+    if order_id:
+        conn = get_db(); c = conn.cursor()
+        c.execute("UPDATE pg_orders SET status='failed' WHERE order_id=? AND status='pending'", (order_id,))
+        conn.commit(); conn.close()
+    return f'<script>location.href="/?pg=fail&message={message}"</script>'
+
+
 # ---------------- 매입 신청 (검수 기반 판매, 사용자) ----------------
 
 INSPECTION_ADDRESS = '서울시 강남구 테헤란로 000, 콩나물 검수센터 (가상 주소 - app.py에서 수정)'
@@ -1016,6 +1271,137 @@ def api_sell_cancel(req_id):
         conn.close(); return jsonify({'error': '취소할 수 없는 상태예요'}), 400
     c.execute('UPDATE sell_requests SET status=?, updated_at=? WHERE id=?', ('cancelled', now_iso(), req_id))
     conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+# ---------------- 예약(관심등록) ----------------
+# 드랍(판매 시간창)이 곧 시작되는 상품에 미리 관심 등록을 해두면, 사이트 방문 시
+# "예약하신 상품이 곧 판매돼요" 같은 안내를 볼 수 있어요. 예약 자체가 구매를 확정하거나
+# 재고를 미리 잡아두지는 않아요 (선착순 원칙은 동일하게 유지).
+
+@app.route('/api/reserve', methods=['POST'])
+@login_required
+@csrf_protect
+def api_reserve():
+    uid = current_user_id()
+    data = request.get_json(force=True)
+    model_key = data.get('model')
+    grade = data.get('grade')
+    conn = get_db(); c = conn.cursor()
+    m = c.execute('SELECT key FROM models WHERE key=?', (model_key,)).fetchone()
+    if not m or grade not in GRADES:
+        conn.close(); return jsonify({'error': 'invalid model/grade'}), 400
+    try:
+        c.execute('INSERT INTO reservations(user_id,model_key,grade,created_at) VALUES (?,?,?,?)',
+                   (uid, model_key, grade, now_iso()))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        pass  # 이미 예약되어 있으면 조용히 통과
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/reserve/<model_key>/<grade>', methods=['DELETE'])
+@login_required
+@csrf_protect
+def api_unreserve(model_key, grade):
+    uid = current_user_id()
+    conn = get_db(); c = conn.cursor()
+    c.execute('DELETE FROM reservations WHERE user_id=? AND model_key=? AND grade=?', (uid, model_key, grade))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/my-reservations')
+@login_required
+def api_my_reservations():
+    uid = current_user_id()
+    conn = get_db()
+    rows = conn.execute('SELECT model_key, grade FROM reservations WHERE user_id=?', (uid,)).fetchall()
+    conn.close()
+    return jsonify({'reservations': [dict(r) for r in rows]})
+
+
+# ---------------- 리뷰 (실거래 인증 기반) ----------------
+
+@app.route('/api/my-orders')
+@login_required
+def api_my_orders():
+    """내가 구매체결한 거래 목록 + 이미 리뷰를 남겼는지 여부"""
+    uid = current_user_id()
+    conn = get_db()
+    rows = conn.execute('''
+        SELECT t.id, t.model_key, t.grade, t.price, t.ts,
+               (SELECT COUNT(*) FROM reviews r WHERE r.trade_id=t.id) as reviewed
+        FROM trades t WHERE t.user_id=? AND t.side='sell_to_user'
+        ORDER BY t.id DESC LIMIT 50
+    ''', (uid,)).fetchall()
+    conn.close()
+    return jsonify({'orders': [dict(r) for r in rows]})
+
+
+@app.route('/api/reviews')
+def api_reviews():
+    model_key = request.args.get('model')
+    conn = get_db()
+    q = '''SELECT r.*, u.email FROM reviews r JOIN users u ON r.user_id=u.id'''
+    params = []
+    if model_key:
+        q += ' WHERE r.model_key=?'
+        params.append(model_key)
+    q += ' ORDER BY r.id DESC LIMIT 100'
+    rows = conn.execute(q, params).fetchall()
+    avg = conn.execute('SELECT AVG(rating) a, COUNT(*) c FROM reviews' + (' WHERE model_key=?' if model_key else ''),
+                        params).fetchone()
+    conn.close()
+    reviews = []
+    for r in rows:
+        d = dict(r)
+        # 이메일은 일부만 노출 (마스킹)
+        email = d['email']
+        name, _, domain = email.partition('@')
+        d['email'] = (name[:2] + '***@' + domain) if len(name) > 2 else ('**@' + domain)
+        reviews.append(d)
+    return jsonify({'reviews': reviews, 'average': round(avg['a'], 2) if avg['a'] else None, 'count': avg['c']})
+
+
+@app.route('/api/reviews', methods=['POST'])
+@login_required
+@csrf_protect
+@rate_limit(10, 300)
+def api_create_review():
+    uid = current_user_id()
+    data = request.get_json(force=True)
+    trade_id = data.get('trade_id')
+    try:
+        rating = int(data.get('rating'))
+    except (TypeError, ValueError):
+        return jsonify({'error': '별점이 올바르지 않아요'}), 400
+    comment = (data.get('comment') or '').strip()[:500]
+    if rating < 1 or rating > 5:
+        return jsonify({'error': '별점은 1~5 사이여야 해요'}), 400
+    conn = get_db(); c = conn.cursor()
+    trade = c.execute('SELECT * FROM trades WHERE id=? AND user_id=? AND side=?',
+                       (trade_id, uid, 'sell_to_user')).fetchone()
+    if not trade:
+        conn.close(); return jsonify({'error': '본인이 구매한 거래만 리뷰를 남길 수 있어요'}), 400
+    existing = c.execute('SELECT id FROM reviews WHERE trade_id=?', (trade_id,)).fetchone()
+    if existing:
+        conn.close(); return jsonify({'error': '이미 리뷰를 남긴 거래예요'}), 400
+    c.execute('INSERT INTO reviews(user_id,trade_id,model_key,grade,rating,comment,created_at) VALUES (?,?,?,?,?,?,?)',
+              (uid, trade_id, trade['model_key'], trade['grade'], rating, comment, now_iso()))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/admin/reviews/<int:review_id>', methods=['DELETE'])
+@admin_required
+@csrf_protect
+def api_admin_delete_review(review_id):
+    conn = get_db(); c = conn.cursor()
+    c.execute('DELETE FROM reviews WHERE id=?', (review_id,))
+    conn.commit(); conn.close()
+    write_audit('admin', session.get('admin_username'), 'delete_review', f'id={review_id}')
     return jsonify({'ok': True})
 
 
@@ -1100,6 +1486,7 @@ def api_admin_suspend_user(user_id):
     c.execute('UPDATE users SET is_suspended=1 WHERE id=?', (user_id,))
     conn.commit(); conn.close()
     write_audit('admin', session.get('admin_username'), 'suspend_user', f'user_id={user_id}')
+    push_notification(user_id, 'account', '계정이 정지됐어요. 관리자에게 문의해주세요.')
     return jsonify({'ok': True})
 
 
@@ -1111,6 +1498,7 @@ def api_admin_unsuspend_user(user_id):
     c.execute('UPDATE users SET is_suspended=0 WHERE id=?', (user_id,))
     conn.commit(); conn.close()
     write_audit('admin', session.get('admin_username'), 'unsuspend_user', f'user_id={user_id}')
+    push_notification(user_id, 'account', '계정 정지가 해제됐어요.')
     return jsonify({'ok': True})
 
 
@@ -1135,6 +1523,7 @@ def api_admin_adjust_balance(user_id):
     conn.commit(); conn.close()
     write_audit('admin', session.get('admin_username'), 'adjust_balance',
                 f'user_id={user_id} amount={amount:+} reason={reason} new_balance={new_balance}')
+    push_notification(user_id, 'balance', f'잔액이 {amount:+,.0f}원 조정됐어요.' + (f' ({reason})' if reason else ''), {'wallet_changed': True})
     return jsonify({'ok': True, 'new_balance': new_balance})
 
 
@@ -1191,6 +1580,7 @@ def api_admin_deposit_approve(dep_id):
               ('approved', now_iso(), session.get('admin_username'), dep_id))
     conn.commit(); conn.close()
     write_audit('admin', session.get('admin_username'), 'approve_deposit', f'id={dep_id} amount={dep["amount"]}')
+    push_notification(dep['user_id'], 'deposit', f'충전 {int(dep["amount"]):,}원이 승인됐어요!', {'wallet_changed': True})
     return jsonify({'ok': True})
 
 
@@ -1206,7 +1596,10 @@ def api_admin_deposit_reject(dep_id):
               ('rejected', now_iso(), session.get('admin_username'), dep_id))
     conn.commit(); conn.close()
     write_audit('admin', session.get('admin_username'), 'reject_deposit', f'id={dep_id}')
+    push_notification(dep['user_id'], 'deposit', f'충전 요청 {int(dep["amount"]):,}원이 거절됐어요. 입금 내역을 확인해주세요.')
     return jsonify({'ok': True})
+
+
 
 
 @app.route('/api/admin/bank-accounts')
@@ -1267,6 +1660,29 @@ def api_announcements():
     return jsonify({'announcements': [dict(r) for r in rows]})
 
 
+# ---------------- 사업자 정보 ----------------
+
+@app.route('/api/business-info')
+def api_business_info():
+    conn = get_db()
+    rows = conn.execute('SELECT * FROM business_info').fetchall()
+    conn.close()
+    return jsonify({r['key']: r['value'] for r in rows})
+
+
+@app.route('/api/admin/business-info', methods=['POST'])
+@admin_required
+@csrf_protect
+def api_admin_update_business_info():
+    data = request.get_json(force=True)
+    conn = get_db(); c = conn.cursor()
+    for key, value in data.items():
+        c.execute('INSERT OR REPLACE INTO business_info(key,value) VALUES (?,?)', (key, str(value)[:300]))
+    conn.commit(); conn.close()
+    write_audit('admin', session.get('admin_username'), 'update_business_info', str(list(data.keys())))
+    return jsonify({'ok': True})
+
+
 @app.route('/api/admin/announcements', methods=['POST'])
 @admin_required
 @csrf_protect
@@ -1282,6 +1698,7 @@ def api_admin_create_announcement():
               (title, body, pinned, now_iso()))
     conn.commit(); conn.close()
     write_audit('admin', session.get('admin_username'), 'create_announcement', title)
+    broadcast_notification('announcement', f'새 공지: {title}')
     return jsonify({'ok': True})
 
 
@@ -1310,6 +1727,73 @@ def api_admin_inventory():
         result.append({'key': m['key'], 'code': m['code'], 'name': m['name'], 'stock': stock})
     conn.close()
     return jsonify({'inventory': result})
+
+
+# ---------------- 관리자: 매각위기(보관료 위험) 아이템 관리 ----------------
+
+@app.route('/api/admin/at-risk')
+@admin_required
+def api_admin_at_risk():
+    conn = get_db()
+    rows = conn.execute('''
+        SELECT p.*, u.email FROM portfolio p JOIN users u ON p.user_id=u.id
+        ORDER BY p.ts ASC
+    ''').fetchall()
+    result = []
+    for item in rows:
+        m = conn.execute('SELECT * FROM models WHERE key=?', (item['model_key'],)).fetchone()
+        if not m:
+            continue
+        fee = calc_storage_fee(item['ts'])
+        value = price_for(m, item['grade'], 'buy')
+        ratio = (fee / value) if value > 0 else 0
+        level = 2 if ratio >= 1.0 else (1 if ratio >= 0.7 else 0)
+        if level > 0:
+            days = int((datetime.now(timezone.utc) - datetime.fromisoformat(item['ts']).replace(tzinfo=timezone.utc)).total_seconds() // 86400)
+            result.append({
+                'id': item['id'], 'email': item['email'], 'model_key': item['model_key'], 'grade': item['grade'],
+                'days_stored': days, 'storage_fee': fee, 'current_value': value,
+                'net_if_liquidated': max(0, value - fee), 'ratio': round(ratio*100), 'level': level,
+                'risk_notified': item['risk_notified'],
+            })
+    conn.close()
+    result.sort(key=lambda x: -x['ratio'])
+    return jsonify({'items': result})
+
+
+@app.route('/api/admin/portfolio/<item_id>/liquidate', methods=['POST'])
+@admin_required
+@csrf_protect
+def api_admin_liquidate(item_id):
+    """관리자가 방치된 위험 아이템을 강제로 매도 처리해요. 보관료를 뺀 나머지(0원 이상)만 유저에게 지급돼요."""
+    conn = get_db(); c = conn.cursor()
+    item = c.execute('SELECT * FROM portfolio WHERE id=?', (item_id,)).fetchone()
+    if not item:
+        conn.close(); return jsonify({'error': 'not found'}), 404
+    m = c.execute('SELECT * FROM models WHERE key=?', (item['model_key'],)).fetchone()
+    price = price_for(m, item['grade'], 'buy')
+    storage_fee = calc_storage_fee(item['ts'])
+    net = max(0, price - storage_fee)
+    ts = now_iso()
+    c.execute('UPDATE wallet SET balance=balance+? WHERE user_id=?', (net, item['user_id']))
+    c.execute('DELETE FROM portfolio WHERE id=?', (item_id,))
+    c.execute('INSERT INTO trades(user_id,model_key,grade,side,price,label,ts,pending) VALUES (?,?,?,?,?,?,?,1)',
+              (item['user_id'], item['model_key'], item['grade'], 'buy_from_user', price, '관리자 강제매각', ts))
+    c.execute('UPDATE models SET internal_trade_count=internal_trade_count+1 WHERE key=?', (item['model_key'],))
+    if storage_fee > 0:
+        c.execute('INSERT INTO revenue_events(type,amount,user_id,ts) VALUES (?,?,?,?)',
+                   ('storage_fee', min(storage_fee, price), item['user_id'], ts))
+    conn.commit()
+    user_row = c.execute('SELECT email FROM users WHERE id=?', (item['user_id'],)).fetchone()
+    conn.close()
+    if user_row:
+        send_email(user_row['email'], '[콩나물] 보관 중이던 상품이 매각 처리됐어요',
+                    f'{item["model_key"]} {item["grade"]}급 상품의 보관료가 물건 가치를 초과해서, 안내드린 대로 매각 처리했어요.\n'
+                    f'매도가 {int(price):,}원에서 보관료 {int(storage_fee):,}원을 제외한 {int(net):,}원이 잔액에 입금됐어요.')
+    push_notification(item['user_id'], 'liquidate', f'보관 중이던 {item["model_key"]} {item["grade"]}급 상품이 매각 처리됐어요. {int(net):,}원이 입금됐어요.', {'wallet_changed': True})
+    write_audit('admin', session.get('admin_username'), 'liquidate_portfolio_item',
+                f'id={item_id} user_id={item["user_id"]} net={net}')
+    return jsonify({'ok': True, 'net': net})
 
 
 @app.route('/api/admin/inventory/set', methods=['POST'])
@@ -1363,6 +1847,97 @@ def api_admin_set_mid(model_key):
     conn.commit(); conn.close()
     write_audit('admin', session.get('admin_username'), 'set_mid_price', f'{model_key} -> {mid}')
     return jsonify({'ok': True, 'mid': mid})
+
+
+# ---------------- 관리자: 상품 관리 (모델 추가/비활성화) ----------------
+
+@app.route('/api/admin/models')
+@admin_required
+def api_admin_list_models():
+    conn = get_db()
+    rows = conn.execute('SELECT * FROM models ORDER BY key').fetchall()
+    conn.close()
+    return jsonify({'models': [dict(r) for r in rows]})
+
+
+@app.route('/api/admin/models', methods=['POST'])
+@admin_required
+@csrf_protect
+def api_admin_create_model():
+    data = request.get_json(force=True)
+    key = re.sub(r'[^a-z0-9_]', '', (data.get('key') or '').strip().lower())
+    code = (data.get('code') or '').strip()[:20]
+    name = (data.get('name') or '').strip()[:100]
+    try:
+        mid = float(data.get('mid'))
+        ratio_s = float(data.get('ratio_s', 1.2))
+        ratio_a = float(data.get('ratio_a', 1.0))
+        ratio_b = float(data.get('ratio_b', 0.8))
+        ratio_c = float(data.get('ratio_c', 0.55))
+    except (TypeError, ValueError):
+        return jsonify({'error': '숫자 값이 올바르지 않아요'}), 400
+    if not key or not code or not name:
+        return jsonify({'error': '상품 키/코드/이름을 모두 입력해주세요'}), 400
+    if mid <= 0:
+        return jsonify({'error': '기준가는 0보다 커야 해요'}), 400
+    conn = get_db(); c = conn.cursor()
+    existing = c.execute('SELECT key FROM models WHERE key=?', (key,)).fetchone()
+    if existing:
+        conn.close(); return jsonify({'error': '이미 존재하는 상품 키예요'}), 400
+    floor_p, ceil_p = mid * 0.6, mid * 1.5
+    c.execute('''INSERT INTO models(key,code,name,ratio_s,ratio_a,ratio_b,ratio_c,mid,floor_p,ceil_p,
+                 internal_trade_count,is_active,drop_start,drop_end)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,0,1,NULL,NULL)''',
+              (key, code, name, ratio_s, ratio_a, ratio_b, ratio_c, mid, floor_p, ceil_p))
+    c.execute('INSERT INTO history(model_key,mid,ts) VALUES (?,?,?)', (key, mid, now_iso()))
+    for g in GRADES:
+        c.execute('INSERT INTO stock VALUES (?,?,0)', (key, g))
+    c.execute('INSERT INTO external_ref VALUES (?,?,?,?)', (key, mid, '관리자 등록 초기값', now_iso()))
+    conn.commit(); conn.close()
+    write_audit('admin', session.get('admin_username'), 'create_model', f'{key} ({name})')
+    return jsonify({'ok': True, 'key': key})
+
+
+@app.route('/api/admin/models/<model_key>/toggle-active', methods=['POST'])
+@admin_required
+@csrf_protect
+def api_admin_toggle_model_active(model_key):
+    conn = get_db(); c = conn.cursor()
+    m = c.execute('SELECT is_active FROM models WHERE key=?', (model_key,)).fetchone()
+    if not m:
+        conn.close(); return jsonify({'error': '존재하지 않는 상품이에요'}), 400
+    new_state = 0 if m['is_active'] else 1
+    c.execute('UPDATE models SET is_active=? WHERE key=?', (new_state, model_key))
+    conn.commit(); conn.close()
+    write_audit('admin', session.get('admin_username'), 'toggle_model_active', f'{model_key} -> {"활성" if new_state else "비활성"}')
+    return jsonify({'ok': True, 'is_active': bool(new_state)})
+
+
+@app.route('/api/admin/models/<model_key>/set-drop', methods=['POST'])
+@admin_required
+@csrf_protect
+def api_admin_set_drop(model_key):
+    data = request.get_json(force=True)
+    conn = get_db(); c = conn.cursor()
+    m = c.execute('SELECT key FROM models WHERE key=?', (model_key,)).fetchone()
+    if not m:
+        conn.close(); return jsonify({'error': '존재하지 않는 상품이에요'}), 400
+    if data.get('clear'):
+        c.execute('UPDATE models SET drop_start=NULL, drop_end=NULL WHERE key=?', (model_key,))
+        conn.commit(); conn.close()
+        write_audit('admin', session.get('admin_username'), 'clear_drop', model_key)
+        return jsonify({'ok': True})
+    drop_start = data.get('drop_start')
+    drop_end = data.get('drop_end')
+    try:
+        if drop_start: datetime.fromisoformat(drop_start)
+        if drop_end: datetime.fromisoformat(drop_end)
+    except ValueError:
+        conn.close(); return jsonify({'error': '시간 형식이 올바르지 않아요 (ISO 형식 필요)'}), 400
+    c.execute('UPDATE models SET drop_start=?, drop_end=? WHERE key=?', (drop_start, drop_end, model_key))
+    conn.commit(); conn.close()
+    write_audit('admin', session.get('admin_username'), 'set_drop', f'{model_key} {drop_start} ~ {drop_end}')
+    return jsonify({'ok': True})
 
 
 # ---------------- 관리자: 운영 설정 (스프레드/수수료/갱신주기) ----------------
@@ -1431,6 +2006,7 @@ def api_admin_sell_receive(req_id):
     c.execute('UPDATE sell_requests SET status=?, updated_at=? WHERE id=?', ('received', now_iso(), req_id))
     conn.commit(); conn.close()
     write_audit('admin', session.get('admin_username'), 'sell_receive', f'id={req_id}')
+    push_notification(row['user_id'], 'sell_status', f'매입 신청하신 {row["model_key"]} {row["self_grade"]}급 상품을 수령했어요. 검수를 시작할게요.')
     return jsonify({'ok': True})
 
 
@@ -1453,6 +2029,7 @@ def api_admin_sell_inspect(req_id):
               ('inspected', final_grade, final_price, admin_note, now_iso(), req_id))
     conn.commit(); conn.close()
     write_audit('admin', session.get('admin_username'), 'sell_inspect', f'id={req_id} grade={final_grade} price={final_price}')
+    push_notification(row['user_id'], 'sell_status', f'검수가 끝났어요! 최종 {final_grade}급, {int(final_price):,}원 정산 예정이에요.')
     return jsonify({'ok': True, 'final_price': final_price})
 
 
@@ -1476,6 +2053,7 @@ def api_admin_sell_payout(req_id):
     conn.commit(); conn.close()
     write_audit('admin', session.get('admin_username'), 'sell_payout', f'id={req_id} amount={row["final_price"]}')
     write_audit('admin', session.get('admin_username'), 'inventory_auto_add', f'{row["model_key"]} {row["final_grade"]} +1 (from sell_request #{req_id})')
+    push_notification(row['user_id'], 'sell_status', f'정산 완료! {int(row["final_price"]):,}원이 잔액에 입금됐어요.', {'wallet_changed': True})
     return jsonify({'ok': True, 'paid': row['final_price']})
 
 
@@ -1493,6 +2071,7 @@ def api_admin_sell_reject(req_id):
               ('rejected', reason, now_iso(), req_id))
     conn.commit(); conn.close()
     write_audit('admin', session.get('admin_username'), 'sell_reject', f'id={req_id} reason={reason}')
+    push_notification(row['user_id'], 'sell_status', f'매입 신청이 반려됐어요.' + (f' 사유: {reason}' if reason else ''))
     return jsonify({'ok': True})
 
 
@@ -1509,13 +2088,5 @@ def index():
 if __name__ == '__main__':
     init_db()
     load_settings_cache()
-    
-    # 데몬 스레드로 스케줄러 실행
     threading.Thread(target=scheduler_loop, daemon=True).start()
-    
-    # ⭕ Render 환경 변수에서 포트를 읽어오고, 없으면 기본값으로 5000을 사용합나다.
-    # Render 내부 시스템이 주는 포트는 문자열이므로 int로 형변환이 필요합니다.
-    port = int(os.environ.get("PORT", 5000))
-    
-    # host는 '0.0.0.0' 그대로 두시면 됩니다.
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
