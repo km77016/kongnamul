@@ -283,6 +283,15 @@
     <section class="view" id="view-system">
       <div class="pagehead"><h1>시스템</h1><p>운영 도구예요. 초기화는 되돌릴 수 없어요.</p></div>
       <div class="panel">
+        <div class="panel-title">지금 보고 있는 DB가 어디 있는 파일인지 확인 <button class="btn" onclick="loadSystemInfo()">새로고침</button></div>
+        <div id="systemInfoPanel"></div>
+        <div class="empty-state" style="text-align:left; padding:10px 0 0;">
+          💡 "분명히 상품/유저를 추가했는데 사라졌다" 싶을 땐 대부분 여기 나오는 <b>DB 경로</b>가
+          예상과 다른 경우예요 (zip을 여러 번 풀었거나 다른 폴더에서 서버를 실행한 경우). 경로가
+          같은지, 파일 수정시각이 방금 작업한 시간과 맞는지 확인해보세요.
+        </div>
+      </div>
+      <div class="panel">
         <div class="panel-title">시세 갱신</div>
         <button class="btn" onclick="tickNow()">지금 시세 갱신 실행</button>
       </div>
@@ -412,6 +421,7 @@ function loadCurrentView(){
   if(currentView==='reviews') loadReviewsAdmin();
   if(currentView==='notices') loadAnnouncementsAdmin();
   if(currentView==='audit') loadAudit();
+  if(currentView==='system') loadSystemInfo();
 }
 
 // ---------------- CSV 내보내기 ----------------
@@ -936,6 +946,28 @@ async function loadAudit(){
 }
 
 // ---------------- 시스템 ----------------
+async function loadSystemInfo(){
+  const r = await api('/api/admin/system-info');
+  if(!r) return;
+  const panel = document.getElementById('systemInfoPanel');
+  const rows = [
+    ['app.py 위치', r.app_py_path],
+    ['DB 파일 경로 (현재 사용중)', r.db_path],
+    ['DB 파일 존재 여부', r.db_exists ? '✅ 있음' : '❌ 없음 (첫 실행이면 정상)'],
+    ['DB 파일 크기', `${r.db_size_kb} KB`],
+    ['DB 마지막 수정 시각', r.db_modified_at ? fmtTime(r.db_modified_at) : '-'],
+    ['서버 시작 시각', fmtTime(r.server_started_at)],
+    ['현재 상품 수', r.model_count],
+    ['현재 가입 유저 수', r.user_count],
+  ];
+  if(r.old_location_backup_exists){
+    rows.push(['⚠️ 구버전 백업 파일', `${r.old_location_path} (앱 폴더 안에 예전 데이터가 남아있어요)`]);
+  }
+  panel.innerHTML = rows.map(([l,v])=>`
+    <div style="display:flex; justify-content:space-between; gap:10px; padding:9px 2px; border-bottom:1px solid var(--border-soft); font-size:12px;">
+      <span style="color:var(--ink-muted); flex:0 0 140px;">${l}</span><span class="mono" style="word-break:break-all; text-align:right;">${v}</span>
+    </div>`).join('');
+}
 async function tickNow(){
   const r = await api('/api/tick_now', {method:'POST'});
   if(r) toast('시세를 갱신했어요');

@@ -6,14 +6,32 @@ AIRMRKT 백엔드 API 서버
 
 실행: python app.py  ->  http://localhost:5000
 """
-import sqlite3, time, random, threading, os, uuid, re, smtplib, secrets, queue, json, base64
+import sqlite3, time, random, threading, os, uuid, re, smtplib, secrets, queue, json, base64, shutil
 import requests
 from datetime import datetime, timezone, timedelta
 from email.mime.text import MIMEText
 from flask import Flask, jsonify, request, session, Response, stream_with_context
 from werkzeug.security import generate_password_hash, check_password_hash
 
-DB_PATH = os.path.join(os.path.dirname(__file__), 'market.db')
+# --- DB 파일 위치 ---
+# 앱 폴더(app.py가 있는 곳) 안에 market.db를 두면, 새 zip을 받아서 폴더를 덮어쓸 때마다
+# 데이터가 통째로 사라질 위험이 있어요. 그래서 기본적으로 "홈 폴더/kongnamul_data/market.db"처럼
+# 앱 폴더 밖에 저장해요. 원하는 위치를 쓰고 싶으면 AIRMRKT_DB_PATH 환경변수로 지정하세요.
+_APP_DIR = os.path.dirname(os.path.abspath(__file__))
+_OLD_DB_PATH = os.path.join(_APP_DIR, 'market.db')  # 예전 버전(앱 폴더 안)에 저장했던 위치
+_DEFAULT_DATA_DIR = os.path.join(os.path.expanduser('~'), 'kongnamul_data')
+DB_PATH = os.environ.get('AIRMRKT_DB_PATH') or os.path.join(_DEFAULT_DATA_DIR, 'market.db')
+os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+
+if not os.path.exists(DB_PATH) and os.path.exists(_OLD_DB_PATH):
+    # 예전 버전에서 쓰던 market.db가 앱 폴더 안에 남아있으면, 잃어버리지 않도록 새 위치로 옮겨요.
+    shutil.copy2(_OLD_DB_PATH, DB_PATH)
+    print('=' * 60)
+    print('기존 market.db를 발견해서 앱 폴더 밖 안전한 위치로 복사했어요.')
+    print(f'  이전 위치: {_OLD_DB_PATH}  (그대로 남겨뒀어요, 확인 후 지우셔도 돼요)')
+    print(f'  새 위치:   {DB_PATH}  (앞으로 이 파일을 계속 써요)')
+    print('앞으로는 zip을 새로 받아서 폴더를 덮어써도 이 데이터는 안전해요.')
+    print('=' * 60)
 
 
 def load_dotenv_simple(path):
@@ -134,6 +152,7 @@ app.config['SESSION_COOKIE_HTTPONLY'] = True
 # 로컬 http://localhost 테스트 중에는 켜면 쿠키가 아예 전달되지 않으니 꺼둔 채로 두세요.
 app.config['SESSION_COOKIE_SECURE'] = os.environ.get('AIRMRKT_FORCE_HTTPS') == '1'
 LAST_TICK = time.time()
+SERVER_STARTED_AT = datetime.now(timezone.utc).isoformat()
 
 
 @app.after_request
@@ -1966,6 +1985,31 @@ def api_admin_audit_log():
     rows = conn.execute('SELECT * FROM audit_log ORDER BY id DESC LIMIT 100').fetchall()
     conn.close()
     return jsonify({'logs': [dict(r) for r in rows]})
+
+
+@app.route('/api/admin/system-info')
+@admin_required
+def api_admin_system_info():
+    """지금 이 서버가 정확히 어떤 market.db 파일을 쓰고 있는지 보여줘요.
+    "분명히 상품을 추가했는데 사라졌다" 같은 문제는 대부분 zip을 여러 번 풀거나
+    다른 폴더에서 서버를 실행해서, 실제로는 서로 다른 market.db를 보고 있는 경우예요."""
+    exists = os.path.exists(DB_PATH)
+    conn = get_db()
+    model_count = conn.execute('SELECT COUNT(*) c FROM models').fetchone()['c']
+    user_count = conn.execute('SELECT COUNT(*) c FROM users').fetchone()['c']
+    conn.close()
+    return jsonify({
+        'app_py_path': os.path.abspath(__file__),
+        'db_path': os.path.abspath(DB_PATH),
+        'db_exists': exists,
+        'db_size_kb': round(os.path.getsize(DB_PATH) / 1024, 1) if exists else 0,
+        'db_modified_at': datetime.fromtimestamp(os.path.getmtime(DB_PATH), tz=timezone.utc).isoformat() if exists else None,
+        'server_started_at': SERVER_STARTED_AT,
+        'model_count': model_count,
+        'user_count': user_count,
+        'old_location_backup_exists': os.path.exists(_OLD_DB_PATH),
+        'old_location_path': _OLD_DB_PATH,
+    })
 
 
 # ---------------- 공지사항 ----------------
