@@ -214,6 +214,7 @@
     </svg>
   </span>콩나물<span class="live-tag" id="connBadge"><span class="dot"></span>연결중...</span></div>
   <div class="nav" id="navBtns"></div>
+  <div class="wallet" id="tierBox" style="display:none;"></div>
   <div class="wallet" id="walletBox" style="display:none;">잔액 <b id="walletVal">₩0</b></div>
   <div id="authBox"></div>
 </div>
@@ -262,6 +263,8 @@
   <section class="view active" id="view-market">
     <div class="pagehead"><h1>실시간 시세</h1><p>체결된 거래를 반영해서 <span id="tickSecLabel">30</span>초마다 시세가 갱신돼요</p></div>
     <div id="noticeBanner"></div>
+    <div id="popularBanner"></div>
+    <div class="field"><input class="auth-input" id="marketSearchTop" placeholder="🔍 모델명으로 검색 (예: 프로2, PRO3)" style="width:100%; max-width:340px; font-family:var(--font-body);" oninput="onSearchInput(this.value)"></div>
     <div class="tickers" id="marketTickers"></div>
     <div class="grid2">
       <div class="panel">
@@ -289,6 +292,7 @@
 
   <section class="view" id="view-trade">
     <div class="pagehead"><h1>구매하기</h1><p>검수완료된 재고를 즉시 구매해요. 내 에어팟을 팔고 싶다면 상단의 "매입신청" 탭을 이용하세요.</p></div>
+    <div class="field"><input class="auth-input" id="marketSearch" placeholder="🔍 모델명으로 검색 (예: 프로2, PRO3)" style="width:100%; max-width:340px; font-family:var(--font-body);" oninput="onSearchInput(this.value)"></div>
     <div class="tickers" id="tradeTickers"></div>
     <div id="dropBanner"></div>
     <div class="field"><div class="field-label">등급 선택</div><div class="seg seg-4" id="tradeGradeSeg"></div></div>
@@ -301,8 +305,17 @@
         <div class="field" id="regionField" style="display:none;"><div class="field-label">배송 지역</div><div class="seg seg-2" id="regionSeg"></div></div>
         <div class="stock-line" id="totalDueLine" style="margin-bottom:14px;"></div>
         <button class="action-btn red" id="buyBtn" onclick="doBuy()">구매하기</button>
-        <button class="mini-btn" id="reserveBtn" style="width:100%; margin-top:8px; display:none;" onclick="toggleReserve()">🔔 예약 알림 받기</button>
+        <div class="btn-row" style="display:flex; gap:6px; margin-top:8px;">
+          <button class="mini-btn" id="reserveBtn" style="flex:1; display:none;" onclick="toggleReserve()">🔔 예약 알림 받기</button>
+          <button class="mini-btn" id="wishlistBtn" style="flex:1;" onclick="toggleWishlist()">🤍 찜하기</button>
+          <button class="mini-btn" id="alertBtn" style="flex:1;" onclick="openPriceAlert()">📉 가격알림</button>
+        </div>
       </div>
+    </div>
+
+    <div class="panel" style="margin-top:14px;">
+      <div class="panel-title">내 가격 알림 · 찜 목록</div>
+      <div id="myAlertsWishlist"></div>
     </div>
   </section>
 
@@ -353,6 +366,20 @@
       </div>
       <button class="mini-btn" onclick="savePin()">저장</button>
       <div class="auth-note">구매·배송신청 시 확인해요. 계좌 비밀번호와 다른, 이 사이트 전용 번호예요.</div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">휴대폰 본인인증</div>
+      <p style="font-size:12px; color:var(--ink-muted); margin-bottom:10px;" id="phoneStatusLine">확인 중...</p>
+      <div class="field" id="phoneInputField">
+        <input class="auth-input" id="phoneInput" maxlength="11" placeholder="01012345678" style="max-width:180px;">
+        <button class="mini-btn" onclick="sendPhoneCode()" style="margin-top:8px;">인증코드 받기</button>
+      </div>
+      <div class="auth-note" id="phoneSentNote"></div>
+      <div class="field" id="phoneCodeField" style="display:none; margin-top:10px;">
+        <input class="auth-input" id="phoneCodeInput" maxlength="6" placeholder="인증코드 6자리" style="max-width:160px;">
+        <button class="mini-btn" onclick="verifyPhoneCode()" style="margin-top:8px;">확인</button>
+      </div>
     </div>
 
     <div class="panel">
@@ -563,7 +590,7 @@ function goToView(key){
   currentView = key;
   if(key==='sell'){ loadSellRequests().then(renderAll); }
   if(key==='deposit'){ loadDepositData().then(renderAll); }
-  if(key==='trade'){ loadReservations().then(renderAll); }
+  if(key==='trade'){ Promise.all([loadReservations(), loadWishlist(), loadPriceAlerts()]).then(renderAll); }
   if(key==='reviews'){ loadReviewsView().then(renderAll); }
   renderAll();
 }
@@ -607,9 +634,21 @@ function sparkPath(arr, forFill=false){
   return pts.map((p,i)=>(i===0?`M ${p[0]},${p[1]}`:`L ${p[0]},${p[1]}`)).join(' ');
 }
 
+const TIER_COLORS = {'브론즈':'#B08D57','실버':'#9AA5B1','골드':'#D4A017','플래티넘':'#00B287'};
 function renderWallet(){
   document.getElementById('walletBox').style.display = STATE.user ? '' : 'none';
   if(STATE.user) document.getElementById('walletVal').textContent = won(STATE.wallet);
+  const tierBox = document.getElementById('tierBox');
+  if(STATE.user && STATE.user.tier){
+    const t = STATE.user.tier;
+    const color = TIER_COLORS[t.tier] || 'var(--ink-muted)';
+    tierBox.style.display = '';
+    tierBox.style.borderColor = color;
+    tierBox.innerHTML = `<span style="color:${color}; font-weight:700;">${t.tier}</span>`;
+    tierBox.title = t.next_tier ? `다음 등급(${t.next_tier.name})까지 거래 ${t.next_tier.need}회 남음` : '최고 등급이에요!';
+  } else {
+    tierBox.style.display = 'none';
+  }
 }
 
 function renderAuthBox(){
@@ -676,9 +715,24 @@ function requireLogin(){
   return true;
 }
 
+let searchQuery = '';
+function onSearchInput(val){
+  searchQuery = val.trim().toLowerCase();
+  const a = document.getElementById('marketSearchTop'), b = document.getElementById('marketSearch');
+  if(a && a.value!==val) a.value = val;
+  if(b && b.value!==val) b.value = val;
+  renderAll();
+}
+function matchesSearch(m){
+  if(!searchQuery) return true;
+  return m.name.toLowerCase().includes(searchQuery) || m.code.toLowerCase().includes(searchQuery);
+}
+
 function renderMarketTickers(){
   const el = document.getElementById('marketTickers'); el.innerHTML='';
-  Object.entries(STATE.models).filter(([,m])=>m.is_active).forEach(([key,m])=>{
+  const entries = Object.entries(STATE.models).filter(([,m])=>m.is_active && matchesSearch(m));
+  if(entries.length===0){ el.innerHTML = '<div class="empty-state"><span class="glyph">🔍</span>검색 결과가 없어요</div>'; return; }
+  entries.forEach(([key,m])=>{
     const div = document.createElement('div');
     div.className = 'ticker'+(selectedModel===key?' active':'');
     div.innerHTML = `<div class="ticker-code">${m.code}</div><div class="ticker-name">${m.name}</div>
@@ -773,9 +827,95 @@ async function toggleReserve(){
   renderTradeTickers();
 }
 
+// ---------------- 찜하기 ----------------
+let wishlist = [];
+async function loadWishlist(){
+  if(!STATE || !STATE.user){ wishlist = []; return; }
+  const r = await api('/api/my-wishlist');
+  wishlist = r ? r.wishlist : [];
+}
+async function toggleWishlist(){
+  if(!requireLogin()) return;
+  const isWished = wishlist.some(w=>w.model_key===selectedModel && w.grade===selectedGrade);
+  if(isWished){
+    await api(`/api/wishlist/${selectedModel}/${selectedGrade}`, {method:'DELETE'});
+    toast('찜을 취소했어요');
+  } else {
+    await api('/api/wishlist', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({model:selectedModel, grade:selectedGrade})});
+    toast('찜했어요! 재입고되면 알려드려요');
+  }
+  await loadWishlist();
+  renderTradeTickers();
+}
+
+// ---------------- 가격 알림 ----------------
+let priceAlerts = [];
+async function loadPriceAlerts(){
+  if(!STATE || !STATE.user){ priceAlerts = []; return; }
+  const r = await api('/api/my-price-alerts');
+  priceAlerts = r ? r.alerts : [];
+}
+async function openPriceAlert(){
+  if(!requireLogin()) return;
+  const current = STATE.models[selectedModel].prices[selectedGrade].sell;
+  const input = prompt(`목표 가격을 입력하세요 (현재가 ${won(current)}). 이 가격 이하로 떨어지면 알려드려요.`, Math.round(current*0.9));
+  if(input===null) return;
+  const target = parseInt(input);
+  if(!target || target<=0){ toast('올바른 금액을 입력해주세요'); return; }
+  const r = await api('/api/price-alerts', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({model:selectedModel, grade:selectedGrade, target_price:target})});
+  if(r){ toast(`가격 알림 설정 완료 (${won(target)} 이하)`); await loadPriceAlerts(); renderTradeTickers(); }
+}
+async function deletePriceAlert(id){
+  await api(`/api/price-alerts/${id}`, {method:'DELETE'});
+  await loadPriceAlerts(); renderTradeTickers();
+}
+async function removeWishlistItem(model, grade){
+  await api(`/api/wishlist/${model}/${grade}`, {method:'DELETE'});
+  await loadWishlist(); renderTradeTickers();
+}
+function renderMyAlertsWishlist(){
+  const el = document.getElementById('myAlertsWishlist');
+  if(!el) return;
+  if(!STATE.user){ el.innerHTML = '<div class="empty-state"><span class="glyph">🔒</span>로그인하면 이용할 수 있어요</div>'; return; }
+  const activeAlerts = priceAlerts.filter(a=>!a.triggered);
+  let html = '';
+  if(activeAlerts.length===0 && wishlist.length===0){
+    html = '<div class="empty-state"><span class="glyph">🔔</span>등록한 가격알림·찜이 없어요</div>';
+  } else {
+    activeAlerts.forEach(a=>{
+      const m = STATE.models[a.model_key];
+      html += `<div class="port-row" style="grid-template-columns:1fr auto;">
+        <span>📉 ${m?m.name:a.model_key} ${a.grade}급 · ${won(a.target_price)} 이하</span>
+        <button class="mini-btn" onclick="deletePriceAlert(${a.id})">삭제</button>
+      </div>`;
+    });
+    wishlist.forEach(w=>{
+      const m = STATE.models[w.model_key];
+      html += `<div class="port-row" style="grid-template-columns:1fr auto;">
+        <span>🤍 ${m?m.name:w.model_key} ${w.grade}급 재입고 알림</span>
+        <button class="mini-btn" onclick="removeWishlistItem('${w.model_key}','${w.grade}')">삭제</button>
+      </div>`;
+    });
+  }
+  el.innerHTML = html;
+}
+
+// ---------------- 인기 상품 ----------------
+let popularItems = [];
+async function loadPopular(){
+  const r = await api('/api/popular');
+  popularItems = r ? r.popular : [];
+}
+function renderPopularBanner(){
+  const el = document.getElementById('popularBanner');
+  if(!el) return;
+  if(popularItems.length===0){ el.innerHTML=''; return; }
+  el.innerHTML = `<div class="announce-banner">🔥<span><b>이번 주 인기 상품</b>${popularItems.map((p,i)=>`${i+1}위 ${p.name}(${p.trade_count}건)`).join(' · ')}</span></div>`;
+}
+
 function renderTradeTickers(){
   const el = document.getElementById('tradeTickers'); el.innerHTML='';
-  Object.entries(STATE.models).filter(([,m])=>m.is_active).forEach(([key,m])=>{
+  Object.entries(STATE.models).filter(([,m])=>m.is_active && matchesSearch(m)).forEach(([key,m])=>{
     const div = document.createElement('div');
     div.className = 'ticker'+(selectedModel===key?' active':'');
     div.innerHTML = `<div class="ticker-code">${m.code}</div><div class="ticker-name">${m.name}</div><div class="ticker-row"><span class="ticker-price">${won(m.mid)}</span></div>`;
@@ -837,6 +977,12 @@ function renderTradeTickers(){
   const buyBtn = document.getElementById('buyBtn');
   buyBtn.disabled = stock<=0 || !canBuyNow;
   buyBtn.textContent = !canBuyNow ? (dropInfo.state==='wait' ? '판매 시작 전' : '판매 종료') : (stock<=0 ? '품절' : '구매하기');
+
+  const wishBtn = document.getElementById('wishlistBtn');
+  const isWished = wishlist.some(w=>w.model_key===selectedModel && w.grade===selectedGrade);
+  wishBtn.textContent = isWished ? '❤️ 찜함' : '🤍 찜하기';
+
+  renderMyAlertsWishlist();
 }
 
 async function doBuy(){
@@ -1024,6 +1170,16 @@ async function loadSellRequests(){
 function renderDepositView(){
   const pinLine = document.getElementById('pinStatusLine');
   if(pinLine) pinLine.textContent = hasPin ? '✅ 결제 비밀번호가 설정되어 있어요' : '⚠️ 아직 설정 안 했어요. 설정하면 구매·배송신청 시 한 번 더 확인해요.';
+  const phoneLine = document.getElementById('phoneStatusLine');
+  if(phoneLine){
+    if(STATE.user && STATE.user.phone_verified){
+      phoneLine.textContent = `✅ 인증 완료 (${STATE.user.phone_number||''})`;
+      document.getElementById('phoneInputField').style.display = 'none';
+      document.getElementById('phoneCodeField').style.display = 'none';
+    } else {
+      phoneLine.textContent = '⚠️ 아직 인증하지 않았어요. 인증하면 사기 방지에 도움이 돼요.';
+    }
+  }
   const box = document.getElementById('depositAccountBox');
   if(depositAccount){
     box.innerHTML = `
@@ -1054,6 +1210,28 @@ async function loadDepositData(){
   depositAccount = acc && !acc.error ? acc : null;
   const r = await api('/api/deposit/my');
   depositRequests = r ? r.requests : [];
+}
+
+async function sendPhoneCode(){
+  if(!requireLogin()) return;
+  const phone = document.getElementById('phoneInput').value.trim();
+  const r = await api('/api/auth/send-phone-code', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({phone})});
+  if(r){
+    document.getElementById('phoneCodeField').style.display = '';
+    const note = document.getElementById('phoneSentNote');
+    if(r.mode==='dev_mode' || r.mode==='not_implemented'){
+      note.textContent = `[DEV MODE] 인증코드: ${r.dev_code}`;
+      document.getElementById('phoneCodeInput').value = r.dev_code;
+    } else {
+      note.textContent = '인증코드를 보냈어요.';
+    }
+  }
+}
+async function verifyPhoneCode(){
+  const phone = document.getElementById('phoneInput').value.trim();
+  const code = document.getElementById('phoneCodeInput').value.trim();
+  const r = await api('/api/auth/verify-phone-code', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({phone, code})});
+  if(r){ toast('휴대폰 인증이 완료됐어요 ✅'); await refresh(); }
 }
 
 async function savePin(){
@@ -1107,7 +1285,7 @@ async function submitDepositRequest(){
 function renderAll(){
   if(!STATE) return;
   renderNav(); renderWallet(); renderAuthBox();
-  if(currentView==='market'){ renderMarketTickers(); renderChart(); renderFeed(); renderStats(); }
+  if(currentView==='market'){ renderMarketTickers(); renderChart(); renderFeed(); renderStats(); renderPopularBanner(); }
   if(currentView==='trade'){ renderTradeTickers(); }
   if(currentView==='sell'){ renderSellView(); }
   if(currentView==='deposit'){ renderDepositView(); }
@@ -1286,6 +1464,8 @@ function connectSSE(){
       toast(data.message);
       if(data.wallet_changed || ['sell_status','account'].includes(data.type)) refresh();
       if(data.type==='announcement'){ loadAnnouncements(); }
+      if(data.type==='price_alert'){ loadPriceAlerts().then(()=>{ if(currentView==='trade') renderTradeTickers(); }); }
+      if(data.type==='restock'){ loadWishlist().then(()=>{ if(currentView==='trade') renderTradeTickers(); }); refresh(); }
     }catch(err){}
   };
   eventSource.onerror = ()=>{
@@ -1315,10 +1495,12 @@ function handlePgCallback(){
 
 loadBizInfo();
 loadAnnouncements();
+loadPopular();
 handlePgCallback();
 refresh();
 setInterval(refresh, 3000); // 서버 상태를 3초마다 폴링 (서버의 자동 tick 결과도 여기서 반영됨)
 setInterval(()=>{ if(STATE && currentView==='trade') renderTradeTickers(); }, 1000); // 드랍 카운트다운 갱신
+setInterval(loadPopular, 60000); // 인기상품은 1분마다 갱신
 </script>
 </body>
 </html>

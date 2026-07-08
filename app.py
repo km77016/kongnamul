@@ -274,6 +274,16 @@ def init_db(force=False):
         user_id INTEGER, order_id TEXT UNIQUE, amount REAL,
         status TEXT DEFAULT 'pending', created_at TEXT, paid_at TEXT
     );
+    CREATE TABLE IF NOT EXISTS price_alerts(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER, model_key TEXT, grade TEXT, target_price REAL,
+        triggered INTEGER DEFAULT 0, created_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS wishlist(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER, model_key TEXT, grade TEXT, created_at TEXT,
+        UNIQUE(user_id, model_key, grade)
+    );
     ''')
     # 기존 DB(이 컬럼이 추가되기 전에 만들어진 market.db)를 위한 간단한 마이그레이션
     try:
@@ -298,6 +308,14 @@ def init_db(force=False):
         pass
     try:
         c.execute('ALTER TABLE portfolio ADD COLUMN risk_notified INTEGER DEFAULT 0')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE users ADD COLUMN phone_number TEXT')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE users ADD COLUMN phone_verified INTEGER DEFAULT 0')
     except sqlite3.OperationalError:
         pass
     if fresh:
@@ -366,6 +384,28 @@ def send_email(to_email, subject, body):
         return True, 'sent'
     except Exception as e:
         print('이메일 발송 실패:', e)
+        return False, 'error'
+
+
+SMS_API_KEY = os.environ.get('SMS_API_KEY')  # 알리고/NHN Cloud 등 실제 SMS 게이트웨이 키. 없으면 DEV MODE.
+
+def send_sms(phone, message):
+    """
+    실제 SMS 발송에는 알리고(Aligo), NHN Cloud SENS, 네이버클라우드 등 유료 게이트웨이 계약이 필요해요.
+    SMS_API_KEY가 설정되어 있지 않으면 DEV MODE로 서버 콘솔에만 출력합니다 (로컬 테스트용).
+    실제 게이트웨이 연동 시 이 함수 안의 TODO 부분만 해당 업체 API 호출로 바꾸면 돼요.
+    """
+    if not SMS_API_KEY:
+        print(f'[DEV MODE] {phone} 로 보낼 SMS: {message}')
+        return False, 'dev_mode'
+    try:
+        # TODO: 실제 SMS 게이트웨이(예: 알리고) API 호출로 교체하세요.
+        # resp = requests.post('https://apis.aligo.in/send/', data={...}, timeout=10)
+        # return resp.status_code == 200, 'sent'
+        print(f'[SMS_API_KEY 설정됨이지만 실제 게이트웨이 연동 코드는 비어있어요] {phone}: {message}')
+        return False, 'not_implemented'
+    except Exception as e:
+        print('SMS 발송 실패:', e)
         return False, 'error'
 
 
@@ -524,6 +564,38 @@ def broadcast_notification(event_type, message, extra=None):
                 q.put(payload)
 
 
+# 관리자용 SSE (보통 관리자는 1~2명이라 별도의 단순 리스트로 관리해요)
+_admin_sse_subscribers = []
+_admin_sse_lock = threading.Lock()
+
+def admin_sse_subscribe():
+    q = queue.Queue()
+    with _admin_sse_lock:
+        _admin_sse_subscribers.append(q)
+    return q
+
+def admin_sse_unsubscribe(q):
+    with _admin_sse_lock:
+        if q in _admin_sse_subscribers:
+            _admin_sse_subscribers.remove(q)
+
+def push_admin_notification(event_type, message, extra=None):
+    payload = {'type': event_type, 'message': message}
+    if extra:
+        payload.update(extra)
+    with _admin_sse_lock:
+        for q in _admin_sse_subscribers:
+            q.put(payload)
+
+
+def notify_wishlist_if_restocked(c, model_key, grade, was_zero):
+    """재고가 0 -> 양수로 바뀌었을 때만 찜한 유저들에게 알려요."""
+    if not was_zero:
+        return
+    for w in c.execute('SELECT * FROM wishlist WHERE model_key=? AND grade=?', (model_key, grade)).fetchall():
+        push_notification(w['user_id'], 'restock', f'찜하신 {model_key} {grade}급 재고가 들어왔어요! 지금 확인해보세요.')
+
+
 def current_admin_id():
     return session.get('admin_id')
 
@@ -537,13 +609,38 @@ def admin_required(fn):
     return wrapper
 
 
-def price_for(model_row, grade, side):
+LOYALTY_TIERS = [  # (최소 거래횟수, 등급명, 스프레드 할인율)
+    (30, '플래티넘', 0.015),
+    (15, '골드', 0.010),
+    (5, '실버', 0.005),
+    (0, '브론즈', 0.0),
+]
+
+def get_user_tier(uid):
+    conn = get_db()
+    row = conn.execute('SELECT COUNT(*) c FROM trades WHERE user_id=?', (uid,)).fetchone()
+    conn.close()
+    count = row['c'] if row else 0
+    for threshold, name, discount in LOYALTY_TIERS:
+        if count >= threshold:
+            next_tier = None
+            idx = LOYALTY_TIERS.index((threshold, name, discount))
+            if idx > 0:
+                nt, nn, nd = LOYALTY_TIERS[idx-1]
+                next_tier = {'name': nn, 'need': nt - count}
+            return {'tier': name, 'trade_count': count, 'discount': discount, 'next_tier': next_tier}
+    return {'tier': '브론즈', 'trade_count': count, 'discount': 0.0, 'next_tier': None}
+
+
+def price_for(model_row, grade, side, discount=0.0):
     ratio = {'S': model_row['ratio_s'], 'A': model_row['ratio_a'],
              'B': model_row['ratio_b'], 'C': model_row['ratio_c']}[grade]
     base = model_row['mid'] * ratio
     if side == 'buy':   # 우리가 매입
-        return round(base * (1 - get_setting('buy_spread')) / 500) * 500
-    return round(base * (1 + get_setting('sell_markup')) / 500) * 500  # 우리가 판매
+        spread = max(0, get_setting('buy_spread') - discount)
+        return round(base * (1 - spread) / 500) * 500
+    markup = max(0, get_setting('sell_markup') - discount)
+    return round(base * (1 + markup) / 500) * 500  # 우리가 판매
 
 
 def external_weight(internal_trade_count):
@@ -577,6 +674,17 @@ def do_tick():
         c.execute('UPDATE models SET mid=? WHERE key=?', (round(new_mid), key))
         c.execute('INSERT INTO history(model_key,mid,ts) VALUES (?,?,?)', (key, round(new_mid), now_iso()))
         c.execute('UPDATE trades SET pending=0 WHERE model_key=? AND pending=1', (key,))
+
+        # 가격 알림 체크: 목표가 이하로 내려간 미발송 알림을 찾아서 보내요
+        updated_model = dict(m); updated_model['mid'] = round(new_mid)
+        for alert in c.execute(
+            'SELECT a.*, u.email FROM price_alerts a JOIN users u ON a.user_id=u.id WHERE a.model_key=? AND a.triggered=0',
+            (key,)).fetchall():
+            current_price = price_for(updated_model, alert['grade'], 'sell')
+            if current_price <= alert['target_price']:
+                push_notification(alert['user_id'], 'price_alert',
+                    f'{updated_model["name"]} {alert["grade"]}급이 목표가 {int(alert["target_price"]):,}원 이하로 내려갔어요! (현재 {int(current_price):,}원)')
+                c.execute('UPDATE price_alerts SET triggered=1 WHERE id=?', (alert['id'],))
         ids = [r['id'] for r in c.execute(
             'SELECT id FROM history WHERE model_key=? ORDER BY id DESC', (key,)).fetchall()]
         if len(ids) > 20:
@@ -587,7 +695,9 @@ def do_tick():
     if random.random() < 0.4:
         key = random.choice(list(MODEL_DEFAULTS.keys()))
         grade = random.choice(GRADES)
+        prev = c.execute('SELECT qty FROM stock WHERE model_key=? AND grade=?', (key, grade)).fetchone()
         c.execute('UPDATE stock SET qty=qty+1 WHERE model_key=? AND grade=?', (key, grade))
+        notify_wishlist_if_restocked(c, key, grade, prev and prev['qty'] == 0)
 
     # 보관료가 물건 가치를 위협할 만큼 쌓인 사용자에게 알림 (레벨 1: 70%↑, 레벨 2: 100%↑)
     for item in c.execute('SELECT p.*, u.email FROM portfolio p JOIN users u ON p.user_id=u.id').fetchall():
@@ -608,6 +718,7 @@ def do_tick():
                     f'지금 매도하거나 배송 신청을 해서 손해를 막아주세요.')
             send_email(item['email'], subject, body)
             c.execute('UPDATE portfolio SET risk_notified=? WHERE id=?', (level, item['id']))
+            push_admin_notification('at_risk', f'매각위기: {item["email"]}님의 {item["model_key"]} {item["grade"]}급 (보관료 {int(ratio*100)}%)')
 
     conn.commit()
     conn.close()
@@ -629,6 +740,8 @@ def scheduler_loop():
 def api_state():
     conn = get_db()
     c = conn.cursor()
+    uid = current_user_id()
+    my_discount = get_user_tier(uid)['discount'] if uid else 0.0
     models = {}
     for m in c.execute('SELECT * FROM models').fetchall():
         hist = [r['mid'] for r in c.execute(
@@ -636,7 +749,7 @@ def api_state():
         stock = {r['grade']: r['qty'] for r in c.execute(
             'SELECT grade,qty FROM stock WHERE model_key=?', (m['key'],)).fetchall()}
         ref = c.execute('SELECT * FROM external_ref WHERE model_key=?', (m['key'],)).fetchone()
-        prices = {g: {'buy': price_for(m, g, 'buy'), 'sell': price_for(m, g, 'sell')} for g in GRADES}
+        prices = {g: {'buy': price_for(m, g, 'buy', my_discount), 'sell': price_for(m, g, 'sell', my_discount)} for g in GRADES}
         models[m['key']] = {
             'code': m['code'], 'name': m['name'], 'mid': m['mid'], 'history': hist,
             'stock': stock, 'prices': prices,
@@ -647,18 +760,18 @@ def api_state():
     feed = [dict(r) for r in c.execute(
         'SELECT model_key,grade,side,price,label,ts FROM trades ORDER BY id DESC LIMIT 10').fetchall()]
 
-    uid = current_user_id()
     user_info = None
     wallet_balance = None
     portfolio = []
     csrf_token = None
     if uid:
-        urow = c.execute('SELECT email, is_suspended FROM users WHERE id=?', (uid,)).fetchone()
+        urow = c.execute('SELECT email, is_suspended, phone_number, phone_verified FROM users WHERE id=?', (uid,)).fetchone()
         if urow and urow['is_suspended']:
             session.pop('user_id', None)
             urow = None
         if urow:
-            user_info = {'email': urow['email']}
+            user_info = {'email': urow['email'], 'tier': get_user_tier(uid),
+                         'phone_number': urow['phone_number'], 'phone_verified': bool(urow['phone_verified'])}
             csrf_token = session.get('csrf_token') or issue_csrf_token()
             wrow = c.execute('SELECT balance FROM wallet WHERE user_id=?', (uid,)).fetchone()
             wallet_balance = wrow['balance'] if wrow else 0
@@ -887,6 +1000,32 @@ def api_stream():
     })
 
 
+@app.route('/api/admin/stream')
+def api_admin_stream():
+    if not current_admin_id():
+        return jsonify({'error': '관리자 로그인이 필요해요'}), 401
+    q = admin_sse_subscribe()
+
+    @stream_with_context
+    def gen():
+        try:
+            yield 'retry: 3000\ndata: {"type":"connected"}\n\n'
+            while True:
+                try:
+                    payload = q.get(timeout=15)
+                    yield f'data: {json.dumps(payload, ensure_ascii=False)}\n\n'
+                except queue.Empty:
+                    yield ': keepalive\n\n'
+        finally:
+            admin_sse_unsubscribe(q)
+
+    return Response(gen(), mimetype='text/event-stream', headers={
+        'Cache-Control': 'no-cache',
+        'X-Accel-Buffering': 'no',
+        'Connection': 'keep-alive',
+    })
+
+
 @app.route('/api/auth/set-pin', methods=['POST'])
 @login_required
 @csrf_protect
@@ -900,6 +1039,68 @@ def api_set_pin():
     c.execute('UPDATE users SET payment_pin_hash=? WHERE id=?', (generate_password_hash(pin), uid))
     conn.commit(); conn.close()
     write_audit('user', str(uid), 'set_payment_pin')
+    return jsonify({'ok': True})
+
+
+PHONE_RE = re.compile(r'^01[0-9]{8,9}$')
+
+@app.route('/api/auth/send-phone-code', methods=['POST'])
+@login_required
+@csrf_protect
+@rate_limit(5, 300)
+def api_send_phone_code():
+    uid = current_user_id()
+    data = request.get_json(force=True)
+    phone = re.sub(r'[^0-9]', '', data.get('phone') or '')
+    if not PHONE_RE.match(phone):
+        return jsonify({'error': "올바른 휴대폰 번호가 아니에요 (예: 01012345678)"}), 400
+    conn = get_db(); c = conn.cursor()
+    last = c.execute(
+        'SELECT created_at FROM verification_codes WHERE email=? AND purpose=? ORDER BY id DESC LIMIT 1',
+        (phone, 'phone_verify')).fetchone()
+    if last:
+        elapsed = (datetime.now(timezone.utc) - datetime.fromisoformat(last['created_at'])).total_seconds()
+        if elapsed < CODE_RESEND_COOLDOWN_SECONDS:
+            conn.close(); return jsonify({'error': f'{int(CODE_RESEND_COOLDOWN_SECONDS-elapsed)}초 후 다시 시도해주세요'}), 429
+    code = generate_code()
+    created = datetime.now(timezone.utc)
+    expires = created + timedelta(minutes=CODE_TTL_MINUTES)
+    c.execute('INSERT INTO verification_codes(email,code,purpose,created_at,expires_at,attempts,verified) VALUES (?,?,?,?,?,0,0)',
+              (phone, code, 'phone_verify', created.isoformat(), expires.isoformat()))
+    conn.commit(); conn.close()
+    sent, mode = send_sms(phone, f'[콩나물] 인증번호 {code} ({CODE_TTL_MINUTES}분 이내 입력)')
+    resp = {'ok': True, 'mode': mode}
+    if mode in ('dev_mode', 'not_implemented'):
+        resp['dev_code'] = code
+    return jsonify(resp)
+
+
+@app.route('/api/auth/verify-phone-code', methods=['POST'])
+@login_required
+@csrf_protect
+def api_verify_phone_code():
+    uid = current_user_id()
+    data = request.get_json(force=True)
+    phone = re.sub(r'[^0-9]', '', data.get('phone') or '')
+    code = (data.get('code') or '').strip()
+    conn = get_db(); c = conn.cursor()
+    row = c.execute(
+        'SELECT * FROM verification_codes WHERE email=? AND purpose=? ORDER BY id DESC LIMIT 1',
+        (phone, 'phone_verify')).fetchone()
+    if not row:
+        conn.close(); return jsonify({'error': '발급된 인증코드가 없어요'}), 400
+    if datetime.now(timezone.utc) > datetime.fromisoformat(row['expires_at']):
+        conn.close(); return jsonify({'error': '인증코드가 만료됐어요'}), 400
+    if row['attempts'] >= CODE_MAX_ATTEMPTS:
+        conn.close(); return jsonify({'error': '시도 횟수를 초과했어요. 코드를 다시 받아주세요'}), 400
+    if row['code'] != code:
+        c.execute('UPDATE verification_codes SET attempts=attempts+1 WHERE id=?', (row['id'],))
+        conn.commit(); conn.close()
+        return jsonify({'error': '코드가 일치하지 않아요'}), 400
+    c.execute('UPDATE verification_codes SET verified=1 WHERE id=?', (row['id'],))
+    c.execute('UPDATE users SET phone_number=?, phone_verified=1 WHERE id=?', (phone, uid))
+    conn.commit(); conn.close()
+    write_audit('user', str(uid), 'verify_phone', phone)
     return jsonify({'ok': True})
 
 
@@ -933,7 +1134,7 @@ def api_trade():
                 conn.close(); return jsonify({'error': '아직 판매 시작 전이에요', 'drop_start': m['drop_start']}), 400
             if m['drop_end'] and now > datetime.fromisoformat(m['drop_end']):
                 conn.close(); return jsonify({'error': '판매 시간이 종료됐어요'}), 400
-        price = price_for(m, grade, 'sell')
+        price = price_for(m, grade, 'sell', get_user_tier(uid)['discount'])
         delivery_fee = 0
         if delivery == 'delivery':
             delivery_fee = get_setting('delivery_base_fee') + (get_setting('remote_surcharge') if region == 'remote' else 0)
@@ -946,6 +1147,9 @@ def api_trade():
         c.execute('UPDATE stock SET qty=qty-1 WHERE model_key=? AND grade=? AND qty>0', (model_key, grade))
         if c.rowcount == 0:
             conn.close(); return jsonify({'error': '방금 품절됐어요'}), 400
+        remaining = c.execute('SELECT qty FROM stock WHERE model_key=? AND grade=?', (model_key, grade)).fetchone()
+        if remaining and remaining['qty'] == 0:
+            push_admin_notification('out_of_stock', f'품절: {model_key} {grade}급 재고가 0개가 됐어요')
         c.execute('UPDATE wallet SET balance=balance-? WHERE user_id=? AND balance>=?', (total, uid, total))
         if c.rowcount == 0:
             # 잔액 재확인 실패 시 방금 차감한 재고를 되돌려요 (동시 요청으로 인한 드문 경합 대비)
@@ -979,7 +1183,7 @@ def api_portfolio_sell(item_id):
     if not item:
         conn.close(); return jsonify({'error': 'not found'}), 404
     m = c.execute('SELECT * FROM models WHERE key=?', (item['model_key'],)).fetchone()
-    price = price_for(m, item['grade'], 'buy')
+    price = price_for(m, item['grade'], 'buy', get_user_tier(uid)['discount'])
     storage_fee = calc_storage_fee(item['ts'])
     net = max(0, price - storage_fee)
     c.execute('UPDATE wallet SET balance=balance+? WHERE user_id=?', (net, uid))
@@ -1101,6 +1305,7 @@ def api_deposit_request():
     c.execute('INSERT INTO deposit_requests(user_id,amount,reference_code,bank_account_id,status,created_at) VALUES (?,?,?,?,?,?)',
               (uid, amount, ref, acc['id'], 'pending', now_iso()))
     conn.commit(); conn.close()
+    push_admin_notification('new_deposit', f'새 충전요청: {int(amount):,}원 (참조코드 {ref})')
     return jsonify({
         'ok': True, 'reference_code': ref, 'amount': amount,
         'bank': {'bank_name': acc['bank_name'], 'account_number': acc['account_number'], 'holder_name': acc['holder_name']},
@@ -1223,13 +1428,14 @@ def api_sell_request():
     m = c.execute('SELECT * FROM models WHERE key=?', (model_key,)).fetchone()
     if not m or grade not in GRADES:
         conn.close(); return jsonify({'error': 'invalid model/grade'}), 400
-    estimated = price_for(m, grade, 'buy')
+    estimated = price_for(m, grade, 'buy', get_user_tier(uid)['discount'])
     ts = now_iso()
     c.execute('''INSERT INTO sell_requests(user_id,model_key,self_grade,note,estimated_price,status,created_at,updated_at)
                  VALUES (?,?,?,?,?,?,?,?)''', (uid, model_key, grade, note, estimated, 'submitted', ts, ts))
     req_id = c.lastrowid
     conn.commit(); conn.close()
     write_audit('user', str(uid), 'sell_request_submit', f'id={req_id} model={model_key} grade={grade}')
+    push_admin_notification('new_sellreq', f'새 매입신청: {model_key} {grade}급 (예상가 {int(estimated):,}원)')
     return jsonify({'ok': True, 'id': req_id, 'estimated_price': estimated, 'shipping_address': INSPECTION_ADDRESS})
 
 
@@ -1320,6 +1526,118 @@ def api_my_reservations():
     rows = conn.execute('SELECT model_key, grade FROM reservations WHERE user_id=?', (uid,)).fetchall()
     conn.close()
     return jsonify({'reservations': [dict(r) for r in rows]})
+
+
+# ---------------- 가격 알림 ----------------
+
+@app.route('/api/price-alerts', methods=['POST'])
+@login_required
+@csrf_protect
+@rate_limit(20, 300)
+def api_create_price_alert():
+    uid = current_user_id()
+    data = request.get_json(force=True)
+    model_key = data.get('model')
+    grade = data.get('grade')
+    try:
+        target_price = float(data.get('target_price'))
+    except (TypeError, ValueError):
+        return jsonify({'error': '목표 가격이 올바르지 않아요'}), 400
+    conn = get_db(); c = conn.cursor()
+    m = c.execute('SELECT key FROM models WHERE key=?', (model_key,)).fetchone()
+    if not m or grade not in GRADES or target_price <= 0:
+        conn.close(); return jsonify({'error': 'invalid request'}), 400
+    c.execute('INSERT INTO price_alerts(user_id,model_key,grade,target_price,triggered,created_at) VALUES (?,?,?,?,0,?)',
+              (uid, model_key, grade, target_price, now_iso()))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/my-price-alerts')
+@login_required
+def api_my_price_alerts():
+    uid = current_user_id()
+    conn = get_db()
+    rows = conn.execute('SELECT * FROM price_alerts WHERE user_id=? ORDER BY id DESC', (uid,)).fetchall()
+    conn.close()
+    return jsonify({'alerts': [dict(r) for r in rows]})
+
+
+@app.route('/api/price-alerts/<int:alert_id>', methods=['DELETE'])
+@login_required
+@csrf_protect
+def api_delete_price_alert(alert_id):
+    uid = current_user_id()
+    conn = get_db(); c = conn.cursor()
+    c.execute('DELETE FROM price_alerts WHERE id=? AND user_id=?', (alert_id, uid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+# ---------------- 찜하기(위시리스트) ----------------
+
+@app.route('/api/wishlist', methods=['POST'])
+@login_required
+@csrf_protect
+def api_add_wishlist():
+    uid = current_user_id()
+    data = request.get_json(force=True)
+    model_key = data.get('model')
+    grade = data.get('grade')
+    conn = get_db(); c = conn.cursor()
+    m = c.execute('SELECT key FROM models WHERE key=?', (model_key,)).fetchone()
+    if not m or grade not in GRADES:
+        conn.close(); return jsonify({'error': 'invalid request'}), 400
+    try:
+        c.execute('INSERT INTO wishlist(user_id,model_key,grade,created_at) VALUES (?,?,?,?)',
+                   (uid, model_key, grade, now_iso()))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        pass
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/wishlist/<model_key>/<grade>', methods=['DELETE'])
+@login_required
+@csrf_protect
+def api_remove_wishlist(model_key, grade):
+    uid = current_user_id()
+    conn = get_db(); c = conn.cursor()
+    c.execute('DELETE FROM wishlist WHERE user_id=? AND model_key=? AND grade=?', (uid, model_key, grade))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/my-wishlist')
+@login_required
+def api_my_wishlist():
+    uid = current_user_id()
+    conn = get_db()
+    rows = conn.execute('SELECT model_key, grade FROM wishlist WHERE user_id=?', (uid,)).fetchall()
+    conn.close()
+    return jsonify({'wishlist': [dict(r) for r in rows]})
+
+
+# ---------------- 인기 상품 랭킹 ----------------
+
+@app.route('/api/popular')
+def api_popular():
+    days = int(request.args.get('days', 7))
+    conn = get_db()
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    rows = conn.execute('''
+        SELECT model_key, COUNT(*) as trade_count
+        FROM trades WHERE ts >= ?
+        GROUP BY model_key ORDER BY trade_count DESC LIMIT 5
+    ''', (since,)).fetchall()
+    result = []
+    for r in rows:
+        m = conn.execute('SELECT name, code FROM models WHERE key=?', (r['model_key'],)).fetchone()
+        if m:
+            result.append({'model_key': r['model_key'], 'name': m['name'], 'code': m['code'], 'trade_count': r['trade_count']})
+    conn.close()
+    return jsonify({'popular': result, 'days': days})
 
 
 # ---------------- 리뷰 (실거래 인증 기반) ----------------
@@ -1467,7 +1785,7 @@ def api_admin_orders():
 def api_admin_users():
     conn = get_db()
     rows = conn.execute('''
-        SELECT u.id, u.email, u.created_at, u.is_suspended,
+        SELECT u.id, u.email, u.created_at, u.is_suspended, u.phone_number, u.phone_verified,
                COALESCE(w.balance,0) as balance,
                (SELECT COUNT(*) FROM portfolio p WHERE p.user_id=u.id) as item_count,
                (SELECT COUNT(*) FROM trades t WHERE t.user_id=u.id) as trade_count
@@ -1813,7 +2131,9 @@ def api_admin_inventory_set():
     m = c.execute('SELECT key FROM models WHERE key=?', (model_key,)).fetchone()
     if not m:
         conn.close(); return jsonify({'error': '존재하지 않는 모델이에요'}), 400
+    prev = c.execute('SELECT qty FROM stock WHERE model_key=? AND grade=?', (model_key, grade)).fetchone()
     c.execute('UPDATE stock SET qty=? WHERE model_key=? AND grade=?', (qty, model_key, grade))
+    notify_wishlist_if_restocked(c, model_key, grade, prev and prev['qty'] == 0 and qty > 0)
     conn.commit(); conn.close()
     write_audit('admin', session.get('admin_username'), 'inventory_set', f'{model_key} {grade} -> {qty}')
     return jsonify({'ok': True})
@@ -2024,7 +2344,7 @@ def api_admin_sell_inspect(req_id):
     if not row or row['status'] != 'received':
         conn.close(); return jsonify({'error': '처리할 수 없는 상태예요'}), 400
     m = c.execute('SELECT * FROM models WHERE key=?', (row['model_key'],)).fetchone()
-    final_price = price_for(m, final_grade, 'buy')
+    final_price = price_for(m, final_grade, 'buy', get_user_tier(row["user_id"])['discount'])
     c.execute('UPDATE sell_requests SET status=?, final_grade=?, final_price=?, admin_note=?, updated_at=? WHERE id=?',
               ('inspected', final_grade, final_price, admin_note, now_iso(), req_id))
     conn.commit(); conn.close()
@@ -2049,7 +2369,9 @@ def api_admin_sell_payout(req_id):
     c.execute('UPDATE stats SET today_trades=today_trades+1, total_inspected=total_inspected+1 WHERE id=1')
     c.execute('UPDATE sell_requests SET status=?, updated_at=? WHERE id=?', ('paid', ts, req_id))
     # 매입 완료된 실물은 클리닝/재포장 후 판매 가능 재고로 편입돼요
+    prev_stock = c.execute('SELECT qty FROM stock WHERE model_key=? AND grade=?', (row['model_key'], row['final_grade'])).fetchone()
     c.execute('UPDATE stock SET qty=qty+1 WHERE model_key=? AND grade=?', (row['model_key'], row['final_grade']))
+    notify_wishlist_if_restocked(c, row['model_key'], row['final_grade'], prev_stock and prev_stock['qty'] == 0)
     conn.commit(); conn.close()
     write_audit('admin', session.get('admin_username'), 'sell_payout', f'id={req_id} amount={row["final_price"]}')
     write_audit('admin', session.get('admin_username'), 'inventory_auto_add', f'{row["model_key"]} {row["final_grade"]} +1 (from sell_request #{req_id})')

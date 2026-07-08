@@ -346,10 +346,31 @@ async function checkAdminSession(){
     document.getElementById('whoBox').textContent = adminInfo.username;
     renderNav();
     loadCurrentView();
+    connectAdminSSE();
   } else {
     document.getElementById('loginWrap').style.display = 'flex';
     document.getElementById('dashWrap').style.display = 'none';
+    disconnectAdminSSE();
   }
+}
+
+let adminEventSource = null;
+function connectAdminSSE(){
+  if(adminEventSource) return;
+  adminEventSource = new EventSource('/api/admin/stream');
+  adminEventSource.onmessage = (e)=>{
+    try{
+      const data = JSON.parse(e.data);
+      if(data.type==='connected') return;
+      toast(data.message);
+      if(['new_sellreq'].includes(data.type) && currentView==='sellreq') loadSellRequests();
+      if(['new_deposit'].includes(data.type) && currentView==='deposits') loadDeposits();
+      if(['at_risk'].includes(data.type) && currentView==='atrisk') loadAtRisk();
+    }catch(err){}
+  };
+}
+function disconnectAdminSSE(){
+  if(adminEventSource){ adminEventSource.close(); adminEventSource = null; }
 }
 
 async function adminLogin(){
@@ -448,16 +469,20 @@ function exportOrdersCSV(){
 
 // ---------------- 계정정보 ----------------
 let lastUsersData = [];
+const TIER_THRESH = [[30,'플래티넘'],[15,'골드'],[5,'실버'],[0,'브론즈']];
+function tierOf(count){ for(const [n,name] of TIER_THRESH){ if(count>=n) return name; } return '브론즈'; }
 async function loadUsers(){
   const r = await api('/api/admin/users');
   if(!r) return;
   lastUsersData = r.users;
   const t = document.getElementById('usersTable');
   if(r.users.length===0){ t.innerHTML = '<tr><td class="empty-state">가입한 유저가 없어요</td></tr>'; return; }
-  t.innerHTML = `<tr><th>ID</th><th>이메일</th><th>가입일</th><th>잔액</th><th>보관중</th><th>거래횟수</th><th>상태</th><th></th></tr>` +
+  t.innerHTML = `<tr><th>ID</th><th>이메일</th><th>가입일</th><th>잔액</th><th>보관중</th><th>거래횟수</th><th>등급</th><th>휴대폰</th><th>상태</th><th></th></tr>` +
     r.users.map(u=>`<tr>
       <td class="mono">${u.id}</td><td>${u.email}</td><td class="mono">${fmtTime(u.created_at)}</td>
       <td class="mono">${won(u.balance)}</td><td class="mono">${u.item_count}</td><td class="mono">${u.trade_count}</td>
+      <td>${tierOf(u.trade_count)}</td>
+      <td>${u.phone_verified ? '✅' : '—'}</td>
       <td>${u.is_suspended ? '<span class="pill rejected">정지됨</span>' : '<span class="pill approved">정상</span>'}</td>
       <td><div class="btn-row">
         <button class="btn" onclick="adjustBalance(${u.id})">잔액조정</button>
