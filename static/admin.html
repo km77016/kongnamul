@@ -500,7 +500,7 @@ function exportOrdersCSV(){
 
 // ---------------- 계정정보 ----------------
 let lastUsersData = [];
-const TIER_THRESH = [[30,'플래티넘'],[15,'골드'],[5,'실버'],[0,'브론즈']];
+const TIER_THRESH = [[60,'플래티넘'],[30,'골드'],[10,'실버'],[0,'브론즈']];
 function tierOf(count){ for(const [n,name] of TIER_THRESH){ if(count>=n) return name; } return '브론즈'; }
 async function loadUsers(){
   const r = await api('/api/admin/users');

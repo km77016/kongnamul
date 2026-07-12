@@ -107,7 +107,7 @@ DEFAULT_SETTINGS = {
     'remote_surcharge': 3000,     # 제주/도서산간 추가요금
     'tick_seconds': 30,           # 데모용 주기. 운영에서는 하루 N회 수준(예: 28800)으로
     'instant_withdraw_fee': 0.015,  # 즉시출금 수수료 (일반출금은 무료)
-    'plus_monthly_fee': 4900,       # 콩나물 플러스 월 구독료
+    'plus_monthly_fee': 9900,       # 콩나물 플러스 월 구독료
     'fast_track_fee': 5000,         # 매입 빠른처리 수수료 (정산액에서 차감)
     'certificate_fee': 3000,        # 정품 인증서 발급 수수료 (플러스 회원 무료)
     'gift_service_fee': 2000,       # 선물하기 포장/서비스 수수료
@@ -388,6 +388,10 @@ def init_db(force=False):
         pass
     try:
         c.execute('ALTER TABLE users ADD COLUMN plus_auto_renew INTEGER DEFAULT 1')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE users ADD COLUMN plus_last_charged_at TEXT')
     except sqlite3.OperationalError:
         pass
     try:
@@ -791,23 +795,29 @@ def admin_required(fn):
 
 
 LOYALTY_TIERS = [  # (최소 거래횟수, 등급명, 스프레드 할인율)
-    (30, '플래티넘', 0.015),
-    (15, '골드', 0.010),
-    (5, '실버', 0.005),
+    (60, '플래티넘', 0.010),
+    (30, '골드', 0.006),
+    (10, '실버', 0.003),
     (0, '브론즈', 0.0),
 ]
-PLUS_DISCOUNT = 0.005       # 플러스 회원 추가 스프레드 할인폭 (등급 할인에 더해짐)
+PLUS_DISCOUNT = 0.002       # 플러스 회원 추가 스프레드 할인폭 (등급 할인에 더해짐)
+PLUS_FEE_DISCOUNT_RATIO = 0.5  # 플러스 회원의 배송비/인증서/빠른처리 수수료는 "전액 무료"가 아니라 50% 할인
 PLUS_PERIOD_DAYS = 30
 
 def get_plus_status(uid):
     conn = get_db()
-    row = conn.execute('SELECT plus_active, plus_expires_at, plus_auto_renew FROM users WHERE id=?', (uid,)).fetchone()
+    row = conn.execute('SELECT plus_active, plus_expires_at, plus_auto_renew, plus_last_charged_at FROM users WHERE id=?', (uid,)).fetchone()
     conn.close()
     if not row:
-        return {'active': False, 'expires_at': None, 'auto_renew': True}
+        return {'active': False, 'expires_at': None, 'auto_renew': True, 'refund_eligible': False}
     active = bool(row['plus_active']) and bool(row['plus_expires_at']) and \
              datetime.fromisoformat(row['plus_expires_at']) > datetime.now(timezone.utc)
-    return {'active': active, 'expires_at': row['plus_expires_at'], 'auto_renew': bool(row['plus_auto_renew'])}
+    refund_eligible = False
+    if active and row['plus_last_charged_at']:
+        elapsed = (datetime.now(timezone.utc) - datetime.fromisoformat(row['plus_last_charged_at'])).total_seconds()
+        refund_eligible = elapsed <= 86400
+    return {'active': active, 'expires_at': row['plus_expires_at'], 'auto_renew': bool(row['plus_auto_renew']),
+            'refund_eligible': refund_eligible}
 
 def get_user_tier(uid):
     conn = get_db()
@@ -926,7 +936,7 @@ def do_tick():
             if wrow and wrow['balance'] >= plus_fee:
                 c.execute('UPDATE wallet SET balance=balance-? WHERE user_id=?', (plus_fee, u['id']))
                 new_expiry = now_dt + timedelta(days=PLUS_PERIOD_DAYS)
-                c.execute('UPDATE users SET plus_expires_at=? WHERE id=?', (new_expiry.isoformat(), u['id']))
+                c.execute('UPDATE users SET plus_expires_at=?, plus_last_charged_at=? WHERE id=?', (new_expiry.isoformat(), now_iso(), u['id']))
                 c.execute('INSERT INTO revenue_events(type,amount,user_id,ts) VALUES (?,?,?,?)',
                            ('plus_subscription', plus_fee, u['id'], now_iso()))
                 push_notification(u['id'], 'plus_renewed', f'콩나물 플러스가 자동 갱신됐어요 ({int(plus_fee):,}원 차감)', {'wallet_changed': True})
@@ -1390,8 +1400,9 @@ def api_trade():
                 conn.close(); return jsonify({'error': '판매 시간이 종료됐어요'}), 400
         price = price_for(m, grade, 'sell', get_user_tier(uid)['discount'])
         delivery_fee = 0
-        if delivery == 'delivery' and not get_plus_status(uid)['active']:
-            delivery_fee = get_setting('delivery_base_fee') + (get_setting('remote_surcharge') if region == 'remote' else 0)
+        if delivery == 'delivery':
+            base_delivery = get_setting('delivery_base_fee') + (get_setting('remote_surcharge') if region == 'remote' else 0)
+            delivery_fee = base_delivery * PLUS_FEE_DISCOUNT_RATIO if get_plus_status(uid)['active'] else base_delivery
         total = price + delivery_fee
         wallet_row = c.execute('SELECT balance FROM wallet WHERE user_id=?', (uid,)).fetchone()
         if not wallet_row or wallet_row['balance'] < total:
@@ -1468,8 +1479,9 @@ def api_portfolio_deliver(item_id):
     if not item:
         conn.close(); return jsonify({'error': 'not found'}), 404
     storage_fee = calc_storage_fee(item['ts'], get_plus_status(uid)['active'])
-    delivery_base = 0 if get_plus_status(uid)['active'] else get_setting('delivery_base_fee')
-    surcharge = get_setting('remote_surcharge') if region == 'remote' else 0
+    is_plus_deliver = get_plus_status(uid)['active']
+    delivery_base = get_setting('delivery_base_fee') * (PLUS_FEE_DISCOUNT_RATIO if is_plus_deliver else 1)
+    surcharge = (get_setting('remote_surcharge') * (PLUS_FEE_DISCOUNT_RATIO if is_plus_deliver else 1)) if region == 'remote' else 0
     total = delivery_base + surcharge + storage_fee
     c.execute('DELETE FROM portfolio WHERE id=?', (item_id,))
     c.execute('UPDATE wallet SET balance=MAX(0,balance-?) WHERE user_id=?', (total, uid))
@@ -1673,6 +1685,10 @@ def api_withdraw_cancel(req_id):
 @rate_limit(10, 300)
 def api_plus_subscribe():
     uid = current_user_id()
+    data = request.get_json(force=True, silent=True) or {}
+    ok, err = verify_pin(uid, data.get('pin'))
+    if not ok:
+        return jsonify({'error': err}), 403
     fee = get_setting('plus_monthly_fee')
     conn = get_db(); c = conn.cursor()
     wallet_row = c.execute('SELECT balance FROM wallet WHERE user_id=?', (uid,)).fetchone()
@@ -1690,7 +1706,8 @@ def api_plus_subscribe():
     c.execute('UPDATE wallet SET balance=balance-? WHERE user_id=? AND balance>=?', (fee, uid, fee))
     if c.rowcount == 0:
         conn.close(); return jsonify({'error': '잔액이 부족해요'}), 400
-    c.execute('UPDATE users SET plus_active=1, plus_expires_at=? WHERE id=?', (new_expiry.isoformat(), uid))
+    c.execute('UPDATE users SET plus_active=1, plus_expires_at=?, plus_last_charged_at=? WHERE id=?',
+              (new_expiry.isoformat(), now_iso(), uid))
     c.execute('INSERT INTO revenue_events(type,amount,user_id,ts) VALUES (?,?,?,?)',
                ('plus_subscription', fee, uid, now_iso()))
     conn.commit(); conn.close()
@@ -1709,6 +1726,30 @@ def api_plus_toggle_autorenew():
     c.execute('UPDATE users SET plus_auto_renew=? WHERE id=?', (new_val, uid))
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'auto_renew': bool(new_val)})
+
+
+@app.route('/api/plus/cancel-refund', methods=['POST'])
+@login_required
+@csrf_protect
+def api_plus_cancel_refund():
+    """구독/갱신 결제 후 24시간 이내면 전액 환불하고 즉시 해지해요.
+    실수로 구독했거나 마음이 바뀐 경우를 위한 안전장치예요."""
+    uid = current_user_id()
+    conn = get_db(); c = conn.cursor()
+    row = c.execute('SELECT plus_active, plus_last_charged_at FROM users WHERE id=?', (uid,)).fetchone()
+    if not row or not row['plus_active'] or not row['plus_last_charged_at']:
+        conn.close(); return jsonify({'error': '환불 가능한 구독 결제 내역이 없어요'}), 400
+    elapsed = (datetime.now(timezone.utc) - datetime.fromisoformat(row['plus_last_charged_at'])).total_seconds()
+    if elapsed > 86400:
+        conn.close(); return jsonify({'error': '결제 후 24시간이 지나서 즉시환불 대상이 아니에요. 대신 자동갱신을 꺼두시면 이번 기간이 끝난 뒤 자동으로 해지돼요'}), 400
+    fee = get_setting('plus_monthly_fee')
+    c.execute('UPDATE wallet SET balance=balance+? WHERE user_id=?', (fee, uid))
+    c.execute('UPDATE users SET plus_active=0, plus_expires_at=NULL, plus_last_charged_at=NULL WHERE id=?', (uid,))
+    c.execute('INSERT INTO revenue_events(type,amount,user_id,ts) VALUES (?,?,?,?)',
+               ('plus_subscription_refund', -fee, uid, now_iso()))
+    conn.commit(); conn.close()
+    write_audit('user', str(uid), 'plus_cancel_refund', f'refund={fee}')
+    return jsonify({'ok': True, 'refunded': fee})
 
 
 # ---------------- 선물하기 ----------------
@@ -1910,7 +1951,7 @@ def api_sell_request():
         conn.close(); return jsonify({'error': 'invalid model/grade'}), 400
     estimated = price_for(m, grade, 'buy', get_user_tier(uid)['discount'])
     is_plus = get_plus_status(uid)['active']
-    ft_fee = 0 if (not fast_track or is_plus) else get_setting('fast_track_fee')
+    ft_fee = 0 if not fast_track else (get_setting('fast_track_fee') * (PLUS_FEE_DISCOUNT_RATIO if is_plus else 1))
     ts = now_iso()
     c.execute('''INSERT INTO sell_requests(user_id,model_key,self_grade,note,estimated_price,status,created_at,updated_at,is_fast_track,fast_track_fee)
                  VALUES (?,?,?,?,?,?,?,?,?,?)''', (uid, model_key, grade, note, estimated, 'submitted', ts, ts, 1 if fast_track else 0, ft_fee))
@@ -2154,7 +2195,7 @@ def api_certificate(trade_id):
     existing = c.execute('SELECT * FROM certificates WHERE trade_id=?', (trade_id,)).fetchone()
     if not existing:
         is_plus = get_plus_status(uid)['active']
-        fee = 0 if is_plus else get_setting('certificate_fee')
+        fee = get_setting('certificate_fee') * (PLUS_FEE_DISCOUNT_RATIO if is_plus else 1)
         if fee > 0:
             wrow = c.execute('SELECT balance FROM wallet WHERE user_id=?', (uid,)).fetchone()
             if not wrow or wrow['balance'] < fee:

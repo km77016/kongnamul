@@ -518,10 +518,10 @@
       <table class="grade-table" style="margin-top:10px;">
         <thead><tr><th>등급</th><th>조건(누적 거래횟수)</th><th>혜택</th></tr></thead>
         <tbody>
-          <tr><td><b style="color:#B08D57;">브론즈</b></td><td>0~4회 (누구나 시작)</td><td>추가 할인 없음</td></tr>
-          <tr><td><b style="color:#9AA5B1;">실버</b></td><td>5회 이상</td><td>스프레드 0.5%p 할인</td></tr>
-          <tr><td><b style="color:#D4A017;">골드</b></td><td>15회 이상</td><td>스프레드 1.0%p 할인</td></tr>
-          <tr><td><b style="color:#00B287;">플래티넘</b></td><td>30회 이상</td><td>스프레드 1.5%p 할인</td></tr>
+          <tr><td><b style="color:#B08D57;">브론즈</b></td><td>0~9회 (누구나 시작)</td><td>추가 할인 없음</td></tr>
+          <tr><td><b style="color:#9AA5B1;">실버</b></td><td>10회 이상</td><td>스프레드 0.3%p 할인</td></tr>
+          <tr><td><b style="color:#D4A017;">골드</b></td><td>30회 이상</td><td>스프레드 0.6%p 할인</td></tr>
+          <tr><td><b style="color:#00B287;">플래티넘</b></td><td>60회 이상</td><td>스프레드 1.0%p 할인</td></tr>
         </tbody>
       </table>
       <div class="note">등급은 자동으로 매겨지고 절대 내려가지 않아요 (누적 거래횟수 기준이라). 상단
@@ -1273,7 +1273,7 @@ const SELL_STATUS_LABEL = {
 function renderSellView(){
   const ftLabel = document.getElementById('fastTrackFeeLabel');
   if(ftLabel && STATE.fees){
-    ftLabel.textContent = (STATE.user && STATE.user.tier.plus.active) ? '플러스 회원 무료' : `수수료 ${won(STATE.fees.fast_track_fee)}`;
+    ftLabel.textContent = (STATE.user && STATE.user.tier.plus.active) ? `수수료 ${won(STATE.fees.fast_track_fee*0.5)} · 플러스 50%할인` : `수수료 ${won(STATE.fees.fast_track_fee)}`;
   }
   const el = document.getElementById('sellTickers'); el.innerHTML='';
   Object.entries(STATE.models).filter(([,m])=>m.is_active).forEach(([key,m])=>{
@@ -1579,15 +1579,15 @@ function renderGuide(){
   const plusEl = document.getElementById('plusGuideLine');
   if(plusEl) plusEl.innerHTML =
     `월 <b style="color:var(--ink);">${won(f.plus_monthly_fee)}</b> 구독으로 아래 혜택을 받아요.<br><br>
-     · 보관료 평생 무료 · 배송비 무료<br>
-     · 매입·구매 스프레드 추가 0.5%p 할인 (단골등급 할인에 더해져요)<br>
-     · 정품 인증서 무료 발급 · 매입 빠른처리 수수료 면제<br><br>
+     · 보관료 평생 무료<br>
+     · 매입·구매 스프레드 추가 0.2%p 할인 (단골등급 할인에 더해져요)<br>
+     · 배송비 · 정품 인증서 발급비 · 매입 빠른처리 수수료 각각 50% 할인<br><br>
      "충전" 탭에서 바로 구독할 수 있고, 자동갱신 여부도 그때그때 바꿀 수 있어요.`;
 
   const certEl = document.getElementById('certGuideLine');
   if(certEl) certEl.innerHTML =
     `실제로 구매한 상품에 한해서, 모델명·등급·구매일이 담긴 PDF 인증서를 발급받을 수 있어요
-     (발급 ${won(f.certificate_fee)}, 플러스 회원 무료). 인증서마다 고유 코드가 있어서, 나중에
+     (발급 ${won(f.certificate_fee)}, 플러스 회원 50% 할인). 인증서마다 고유 코드가 있어서, 나중에
      되팔 때 사이트 하단 "인증서 확인" 메뉴에서 누구나 진위를 조회할 수 있어요. 한 번 발급하면
      재다운로드는 무료예요. "리뷰" 탭의 내 구매내역에서 발급받을 수 있어요.`;
 
@@ -1673,7 +1673,7 @@ function renderReviewsView(){
       const name = m ? m.name : o.model_key;
       const certBtn = o.has_certificate
         ? `<button class="mini-btn" onclick="downloadCertificate(${o.id})">📜 인증서 다운로드</button>`
-        : `<button class="mini-btn" onclick="downloadCertificate(${o.id})">📜 인증서 발급 (${STATE.user.tier.plus.active ? '무료·플러스' : won(STATE.fees.certificate_fee||3000)})</button>`;
+        : `<button class="mini-btn" onclick="downloadCertificate(${o.id})">📜 인증서 발급 (${STATE.user.tier.plus.active ? won((STATE.fees.certificate_fee||3000)*0.5)+' · 플러스 50%할인' : won(STATE.fees.certificate_fee||3000)})</button>`;
       if(o.reviewed){
         return `<div class="port-row" style="grid-template-columns:1fr auto auto;">
           <span>${name} · ${o.grade}급 · ${won(o.price)}</span>
@@ -1750,31 +1750,46 @@ function renderPlusPanel(){
     el.innerHTML = `
       <p style="font-size:13px; margin-bottom:10px;">✅ 플러스 회원이에요! <b>${expiry}</b>까지 유효해요.</p>
       <ul style="font-size:12px; color:var(--ink-muted); line-height:1.9; margin:0 0 12px 18px;">
-        <li>보관료 평생 무료 · 배송비 무료</li>
-        <li>매입·구매 스프레드 추가 0.5%p 할인</li>
-        <li>정품 인증서 무료 발급</li>
+        <li>보관료 평생 무료</li>
+        <li>매입·구매 스프레드 추가 0.2%p 할인</li>
+        <li>배송비 · 인증서 발급비 · 빠른처리 수수료 각 50% 할인</li>
       </ul>
-      <label style="display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--ink-muted);">
+      <label style="display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--ink-muted); margin-bottom:10px;">
         <input type="checkbox" ${plus.auto_renew?'checked':''} onchange="togglePlusAutoRenew()"> 자동 갱신 (다음 결제 ${won(fee)})
-      </label>`;
+      </label>
+      ${plus.refund_eligible ? `<button class="mini-btn" onclick="cancelPlusRefund()">결제 24시간 이내 · 즉시취소 + 전액환불</button>` : ''}`;
   } else {
     el.innerHTML = `
       <p style="font-size:13px; margin-bottom:10px;">월 <b>${won(fee)}</b>로 아래 혜택을 모두 받아요.</p>
       <ul style="font-size:12px; color:var(--ink-muted); line-height:1.9; margin:0 0 12px 18px;">
-        <li>보관료 평생 무료 · 배송비 무료</li>
-        <li>매입·구매 스프레드 추가 0.5%p 할인</li>
-        <li>정품 인증서 무료 발급 · 매입 빠른처리 수수료 면제</li>
+        <li>보관료 평생 무료</li>
+        <li>매입·구매 스프레드 추가 0.2%p 할인</li>
+        <li>배송비 · 인증서 발급비 · 빠른처리 수수료 각 50% 할인</li>
       </ul>
       <button class="action-btn mint" onclick="subscribePlus()">플러스 구독하기 (${won(fee)}/월)</button>`;
   }
 }
 async function subscribePlus(){
-  const r = await api('/api/plus/subscribe', {method:'POST'});
+  if(!requireLogin()) return;
+  const fee = STATE.fees.plus_monthly_fee;
+  const already = STATE.user.tier.plus.active;
+  const msg = already
+    ? `구독을 30일 연장할게요. ${won(fee)}이 지금 바로 결제돼요. 계속할까요?`
+    : `콩나물 플러스를 구독할게요. ${won(fee)}이 지금 바로 결제되고, 이후 매달 자동으로 결제돼요 (자동갱신은 언제든 끌 수 있어요). 계속할까요?`;
+  if(!confirm(msg)) return;
+  const pinResult = askPin();
+  if(!pinResult.ok) return;
+  const r = await api('/api/plus/subscribe', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({pin:pinResult.pin})});
   if(r){ toast('콩나물 플러스 구독 완료! 🌱'); await refresh(); renderPlusPanel(); }
 }
 async function togglePlusAutoRenew(){
   const r = await api('/api/plus/toggle-autorenew', {method:'POST'});
   if(r){ toast(r.auto_renew ? '자동 갱신을 켰어요' : '자동 갱신을 껐어요'); await refresh(); renderPlusPanel(); }
+}
+async function cancelPlusRefund(){
+  if(!confirm('구독을 즉시 취소하고 전액 환불받을까요? 혜택은 바로 사라져요.')) return;
+  const r = await api('/api/plus/cancel-refund', {method:'POST'});
+  if(r){ toast(`구독을 취소하고 ${won(r.refunded)}을 환불했어요`); await refresh(); renderPlusPanel(); }
 }
 
 function downloadCertificate(tradeId){
