@@ -310,6 +310,15 @@
           <button class="mini-btn" id="wishlistBtn" style="flex:1;" onclick="toggleWishlist()">🤍 찜하기</button>
           <button class="mini-btn" id="alertBtn" style="flex:1;" onclick="openPriceAlert()">📉 가격알림</button>
         </div>
+        <button class="mini-btn" style="width:100%; margin-top:8px;" onclick="toggleGiftForm()">🎁 선물로 보내기</button>
+        <div id="giftForm" style="display:none; margin-top:10px; padding-top:10px; border-top:1px dashed var(--border);">
+          <div class="field-label">받는 분 이메일</div>
+          <input class="auth-input" id="giftToEmail" placeholder="friend@example.com">
+          <div class="field-label">메시지 (선택)</div>
+          <textarea class="auth-input" id="giftMessage" style="width:100%; min-height:50px; font-family:var(--font-body);" placeholder="생일 축하해!"></textarea>
+          <div class="stock-line" id="giftFeeLine" style="margin-bottom:10px;"></div>
+          <button class="action-btn mint" onclick="sendGift()">선물 보내기</button>
+        </div>
       </div>
     </div>
 
@@ -330,6 +339,9 @@
         <div class="field-label">상태 메모 (선택)</div>
         <textarea id="sellNote" class="auth-input" style="width:100%; min-height:60px; resize:vertical; font-family:var(--font-body); font-size:13px;" placeholder="예: 박스 있음, 배터리 상태 양호, 좌측 유닛에 미세 스크래치"></textarea>
       </div>
+      <label style="display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--ink-muted); margin-bottom:14px;">
+        <input type="checkbox" id="sellFastTrack"> 🚀 빠른처리 신청 (관리자가 우선 검수해요, <span id="fastTrackFeeLabel">수수료 별도</span>)
+      </label>
       <div class="stock-line" id="sellEstimateLine" style="margin-bottom:14px;"></div>
       <button class="action-btn mint" onclick="submitSellRequest()">매입 신청하기</button>
     </div>
@@ -341,9 +353,14 @@
   </section>
 
   <section class="view" id="view-deposit">
-    <div class="pagehead"><h1>잔액 충전</h1><p>카드·간편결제로 즉시 충전하거나, 계좌이체로 충전해요</p></div>
+    <div class="pagehead"><h1>잔액 충전</h1><p id="depositSubtitle">계좌이체로 충전해요</p></div>
 
-    <div class="panel">
+    <div class="panel" style="background:linear-gradient(135deg, var(--mint-tint), var(--lime-tint)); border-color:var(--mint-line);">
+      <div class="panel-title">🌱 콩나물 플러스</div>
+      <div id="plusPanel"></div>
+    </div>
+
+    <div class="panel" id="cardPaymentPanel" style="display:none;">
       <div class="panel-title">카드 · 간편결제로 충전 <span style="font-weight:400; color:var(--ink-faint); text-transform:none; font-size:10.5px;">토스페이먼츠</span></div>
       <div class="field">
         <div class="field-label">충전할 금액 (1,000원 ~ 5,000,000원)</div>
@@ -395,6 +412,35 @@
     <div class="panel">
       <div class="panel-title">내 충전 내역</div>
       <div id="depositRequestList"></div>
+    </div>
+  </section>
+
+  <section class="view" id="view-withdraw">
+    <div class="pagehead"><h1>출금</h1><p>내 잔액을 실제 계좌로 받아요</p></div>
+    <div id="settlementDateBanner"></div>
+
+    <div class="panel">
+      <div class="panel-title">출금 방식</div>
+      <div class="seg seg-2" id="withdrawPrioritySeg"></div>
+      <div class="auth-note" id="withdrawFeeNote" style="margin-top:10px;"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">출금 요청</div>
+      <div class="field">
+        <div class="field-label">출금할 금액 (10,000원 ~ 5,000,000원)</div>
+        <div class="numwrap"><span>₩</span><input type="number" id="withdrawAmount" class="auth-input" style="padding-left:26px;" placeholder="100000" step="10000"></div>
+      </div>
+      <div class="field"><div class="field-label">입금받을 은행</div><input class="auth-input" id="withdrawBank" placeholder="예: 국민은행"></div>
+      <div class="field"><div class="field-label">계좌번호</div><input class="auth-input" id="withdrawAccount" placeholder="예: 123456-78-901234"></div>
+      <div class="field"><div class="field-label">예금주</div><input class="auth-input" id="withdrawHolder" placeholder="본인 명의여야 해요"></div>
+      <div class="stock-line" id="withdrawTotalLine" style="margin-bottom:14px;"></div>
+      <button class="action-btn red" onclick="submitWithdraw()">출금 신청하기</button>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">내 출금 내역</div>
+      <div id="withdrawRequestList"></div>
     </div>
   </section>
 
@@ -514,6 +560,18 @@
     <div class="pagehead"><h1>사업자 정보</h1><p></p></div>
     <div class="panel" id="bizInfoPanel"></div>
   </section>
+
+  <section class="view" id="view-verifycert">
+    <div class="pagehead"><h1>인증서 확인</h1><p>정품 검수 인증서에 적힌 코드를 입력하면 진위를 확인할 수 있어요 (로그인 불필요)</p></div>
+    <div class="panel">
+      <div class="field-label">인증코드</div>
+      <div style="display:flex; gap:8px;">
+        <input class="auth-input" id="certVerifyInput" placeholder="예: KN-8CFC0062" style="flex:1;">
+        <button class="mini-btn" onclick="verifyCertificate()">확인</button>
+      </div>
+    </div>
+    <div class="panel" id="certVerifyResult" style="display:none;"></div>
+  </section>
 </div>
 
 <footer id="siteFooter" style="max-width:1080px; margin:20px auto 0; padding:20px 16px 30px; font-size:11.5px; color:var(--ink-faint); line-height:1.9; border-top:1px solid var(--border-soft);">
@@ -521,7 +579,8 @@
   <div style="margin-top:6px;">
     <a href="javascript:void(0)" onclick="goToView('terms')" style="color:var(--ink-muted); text-decoration:underline;">이용약관</a> ·
     <a href="javascript:void(0)" onclick="goToView('privacy')" style="color:var(--ink-muted); text-decoration:underline;">개인정보처리방침</a> ·
-    <a href="javascript:void(0)" onclick="goToView('bizinfo')" style="color:var(--ink-muted); text-decoration:underline;">사업자정보</a>
+    <a href="javascript:void(0)" onclick="goToView('bizinfo')" style="color:var(--ink-muted); text-decoration:underline;">사업자정보</a> ·
+    <a href="javascript:void(0)" onclick="goToView('verifycert')" style="color:var(--ink-muted); text-decoration:underline;">인증서 확인</a>
   </div>
 </footer>
 
@@ -542,7 +601,7 @@ const GRADES = [
 ];
 const NAV = [
   {key:'market',label:'마켓',icon:'📊'}, {key:'trade',label:'구매하기',icon:'🛒'}, {key:'sell',label:'매입신청',icon:'📮'},
-  {key:'deposit',label:'충전',icon:'💳'}, {key:'portfolio',label:'보관함',icon:'🗄️'}, {key:'reviews',label:'리뷰',icon:'⭐'},
+  {key:'deposit',label:'충전',icon:'💳'}, {key:'withdraw',label:'출금',icon:'🏦'}, {key:'portfolio',label:'보관함',icon:'🗄️'}, {key:'reviews',label:'리뷰',icon:'⭐'},
   {key:'notice',label:'공지사항',icon:'📢'}, {key:'guide',label:'가이드',icon:'📖'}
 ];
 
@@ -590,6 +649,7 @@ function goToView(key){
   currentView = key;
   if(key==='sell'){ loadSellRequests().then(renderAll); }
   if(key==='deposit'){ loadDepositData().then(renderAll); }
+  if(key==='withdraw'){ loadWithdrawals().then(renderAll); }
   if(key==='trade'){ Promise.all([loadReservations(), loadWishlist(), loadPriceAlerts()]).then(renderAll); }
   if(key==='reviews'){ loadReviewsView().then(renderAll); }
   renderAll();
@@ -848,6 +908,33 @@ async function toggleWishlist(){
   renderTradeTickers();
 }
 
+function toggleGiftForm(){
+  if(!requireLogin()) return;
+  const form = document.getElementById('giftForm');
+  const showing = form.style.display !== 'none';
+  form.style.display = showing ? 'none' : '';
+  if(!showing){
+    const price = STATE.models[selectedModel].prices[selectedGrade].sell;
+    const fee = STATE.fees.gift_service_fee;
+    document.getElementById('giftFeeLine').textContent = `상품가 ${won(price)} + 포장/서비스료 ${won(fee)} = 총 ${won(price+fee)}`;
+  }
+}
+async function sendGift(){
+  const to_email = document.getElementById('giftToEmail').value.trim();
+  const message = document.getElementById('giftMessage').value;
+  if(!to_email){ toast('받는 분 이메일을 입력해주세요'); return; }
+  const pinResult = askPin();
+  if(!pinResult.ok) return;
+  const r = await api('/api/gift/send', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({model:selectedModel, grade:selectedGrade, to_email, message, pin:pinResult.pin})});
+  if(r){
+    toast(r.recipient_exists ? '선물을 바로 전달했어요! 🎁' : `아직 가입 안 한 분이에요. ${to_email} 님이 가입하면 자동으로 전달돼요 🎁`);
+    document.getElementById('giftToEmail').value=''; document.getElementById('giftMessage').value='';
+    document.getElementById('giftForm').style.display='none';
+    await refresh();
+  }
+}
+
 // ---------------- 가격 알림 ----------------
 let priceAlerts = [];
 async function loadPriceAlerts(){
@@ -1098,6 +1185,10 @@ const SELL_STATUS_LABEL = {
 };
 
 function renderSellView(){
+  const ftLabel = document.getElementById('fastTrackFeeLabel');
+  if(ftLabel && STATE.fees){
+    ftLabel.textContent = (STATE.user && STATE.user.tier.plus.active) ? '플러스 회원 무료' : `수수료 ${won(STATE.fees.fast_track_fee)}`;
+  }
   const el = document.getElementById('sellTickers'); el.innerHTML='';
   Object.entries(STATE.models).filter(([,m])=>m.is_active).forEach(([key,m])=>{
     const div = document.createElement('div');
@@ -1144,11 +1235,13 @@ function renderSellView(){
 async function submitSellRequest(){
   if(!requireLogin()) return;
   const note = document.getElementById('sellNote').value;
+  const fast_track = document.getElementById('sellFastTrack').checked;
   const r = await api('/api/sell/request', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({model:selectedSellModel, grade:selectedSellGrade, note})});
+    body: JSON.stringify({model:selectedSellModel, grade:selectedSellGrade, note, fast_track})});
   if(r){
-    toast(`매입 신청 완료 · 예상가 ${won(r.estimated_price)}`);
+    toast(`매입 신청 완료 · 예상가 ${won(r.estimated_price)}` + (r.fast_track_fee ? ` (빠른처리 수수료 ${won(r.fast_track_fee)} 별도)` : ''));
     document.getElementById('sellNote').value = '';
+    document.getElementById('sellFastTrack').checked = false;
     await loadSellRequests();
     renderAll();
   }
@@ -1168,6 +1261,12 @@ async function loadSellRequests(){
 // ---------------- 잔액 충전 (계좌이체) ----------------
 
 function renderDepositView(){
+  renderPlusPanel();
+  const cardPanel = document.getElementById('cardPaymentPanel');
+  const cardOn = STATE.fees && STATE.fees.card_payment_enabled;
+  if(cardPanel) cardPanel.style.display = cardOn ? '' : 'none';
+  const subtitle = document.getElementById('depositSubtitle');
+  if(subtitle) subtitle.textContent = cardOn ? '카드·간편결제로 즉시 충전하거나, 계좌이체로 충전해요' : '계좌이체로 충전해요';
   const pinLine = document.getElementById('pinStatusLine');
   if(pinLine) pinLine.textContent = hasPin ? '✅ 결제 비밀번호가 설정되어 있어요' : '⚠️ 아직 설정 안 했어요. 설정하면 구매·배송신청 시 한 번 더 확인해요.';
   const phoneLine = document.getElementById('phoneStatusLine');
@@ -1281,6 +1380,90 @@ async function submitDepositRequest(){
   }
 }
 
+// ---------------- 출금 ----------------
+let withdrawPriority = 'normal', withdrawRequests = [];
+async function loadWithdrawals(){
+  if(!STATE || !STATE.user){ withdrawRequests = []; return; }
+  const r = await api('/api/my-withdrawals');
+  withdrawRequests = r ? r.requests : [];
+}
+const WITHDRAW_STATUS_LABEL = {
+  pending: ['처리 대기중', 'var(--bean)'], completed: ['출금 완료', 'var(--mint)'],
+  rejected: ['거절됨', 'var(--red)'], cancelled: ['취소됨', 'var(--ink-faint)'],
+};
+function renderWithdrawView(){
+  const instantOn = !!(STATE.fees && STATE.fees.instant_withdraw_enabled);
+  if(!instantOn && withdrawPriority==='instant') withdrawPriority = 'normal';
+
+  const dateBanner = document.getElementById('settlementDateBanner');
+  if(dateBanner){
+    const d = STATE.fees && STATE.fees.next_settlement_date;
+    dateBanner.innerHTML = d ? `<div class="announce-banner">📅<span><b>다음 정산일: ${d}</b>일반출금은 매주 일요일에 한 번에 처리돼요. 신청은 언제든 가능해요.</span></div>` : '';
+  }
+
+  const seg = document.getElementById('withdrawPrioritySeg'); seg.innerHTML = '';
+  const feeRate = (STATE.fees && STATE.fees.instant_withdraw_fee) || 0.015;
+  const options = [{k:'normal', l:'일반출금', s:'무료 · 매주 일요일 일괄 정산'}];
+  if(instantOn) options.push({k:'instant', l:'⚡즉시출금', s:`수수료 ${(feeRate*100).toFixed(1)}% · 최우선 처리`});
+  options.forEach(p=>{
+    const b = document.createElement('button');
+    b.className = withdrawPriority===p.k ? 'on' : '';
+    b.innerHTML = `${p.l}<small>${p.s}</small>`;
+    b.onclick = ()=>{ withdrawPriority = p.k; renderWithdrawView(); };
+    seg.appendChild(b);
+  });
+  const amount = parseInt(document.getElementById('withdrawAmount').value) || 0;
+  const fee = withdrawPriority==='instant' ? Math.round(amount*feeRate) : 0;
+  document.getElementById('withdrawFeeNote').textContent = withdrawPriority==='instant'
+    ? '즉시출금은 관리자 최우선 처리 큐로 들어가요. 실제 송금은 여전히 관리자 확인 후 진행돼요 (자동화된 즉시입금은 아니에요).'
+    : '일반출금은 수수료 없이, 신청 시점과 무관하게 매주 일요일에 한 번에 정산돼요.';
+  document.getElementById('withdrawTotalLine').textContent = amount>0
+    ? `출금 신청 ${won(amount)} − 수수료 ${won(fee)} = 실수령 ${won(amount-fee)}` : '';
+
+  const list = document.getElementById('withdrawRequestList');
+  if(!STATE.user){
+    list.innerHTML = `<div class="empty-state"><span class="glyph">🔒</span>로그인하면 이용할 수 있어요</div>`;
+  } else if(withdrawRequests.length===0){
+    list.innerHTML = `<div class="empty-state"><span class="glyph">🏦</span>출금 내역이 없어요</div>`;
+  } else {
+    list.innerHTML = withdrawRequests.map(w=>{
+      const [label,color] = WITHDRAW_STATUS_LABEL[w.status] || [w.status,'var(--ink-muted)'];
+      return `<div class="port-row" style="grid-template-columns:1fr auto;">
+        <span><b style="color:${color};">● ${label}</b> ${w.priority==='instant'?'⚡':''}<br>
+          ${won(w.amount)} (수수료 ${won(w.fee)}, 실수령 ${won(w.net_amount)}) · ${w.bank_name} ${w.account_number}</span>
+        ${w.status==='pending' ? `<button class="mini-btn" onclick="cancelWithdraw(${w.id})">취소</button>` : ''}
+      </div>`;
+    }).join('');
+  }
+}
+async function submitWithdraw(){
+  if(!requireLogin()) return;
+  const amount = parseInt(document.getElementById('withdrawAmount').value);
+  const bank_name = document.getElementById('withdrawBank').value.trim();
+  const account_number = document.getElementById('withdrawAccount').value.trim();
+  const holder_name = document.getElementById('withdrawHolder').value.trim();
+  if(!amount){ toast('출금할 금액을 입력해주세요'); return; }
+  if(!bank_name || !account_number || !holder_name){ toast('은행/계좌번호/예금주를 모두 입력해주세요'); return; }
+  const pinResult = askPin();
+  if(!pinResult.ok) return;
+  const r = await api('/api/withdraw/request', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({amount, priority:withdrawPriority, bank_name, account_number, holder_name, pin:pinResult.pin})});
+  if(r){
+    toast(`출금 신청 완료 · 실수령 예정 ${won(r.net_amount)}`);
+    document.getElementById('withdrawAmount').value = '';
+    document.getElementById('withdrawBank').value = '';
+    document.getElementById('withdrawAccount').value = '';
+    document.getElementById('withdrawHolder').value = '';
+    await loadWithdrawals();
+    await refresh();
+  }
+}
+async function cancelWithdraw(id){
+  const r = await api(`/api/withdraw/${id}/cancel`, {method:'POST'});
+  if(r){ toast('출금 신청을 취소했어요'); await loadWithdrawals(); await refresh(); }
+}
+
+
 
 function renderAll(){
   if(!STATE) return;
@@ -1289,6 +1472,7 @@ function renderAll(){
   if(currentView==='trade'){ renderTradeTickers(); }
   if(currentView==='sell'){ renderSellView(); }
   if(currentView==='deposit'){ renderDepositView(); }
+  if(currentView==='withdraw'){ renderWithdrawView(); }
   if(currentView==='portfolio'){ renderPortfolio(); }
   if(currentView==='notice'){ renderNotice(); }
   if(currentView==='reviews'){ renderReviewsView(); }
@@ -1369,10 +1553,14 @@ function renderReviewsView(){
     myEl.innerHTML = myOrders.map(o=>{
       const m = STATE.models[o.model_key];
       const name = m ? m.name : o.model_key;
+      const certBtn = o.has_certificate
+        ? `<button class="mini-btn" onclick="downloadCertificate(${o.id})">📜 인증서 다운로드</button>`
+        : `<button class="mini-btn" onclick="downloadCertificate(${o.id})">📜 인증서 발급 (${STATE.user.tier.plus.active ? '무료·플러스' : won(STATE.fees.certificate_fee||3000)})</button>`;
       if(o.reviewed){
-        return `<div class="port-row" style="grid-template-columns:1fr auto;">
+        return `<div class="port-row" style="grid-template-columns:1fr auto auto;">
           <span>${name} · ${o.grade}급 · ${won(o.price)}</span>
           <span style="color:var(--mint-deep); font-size:11.5px; font-weight:600;">리뷰 완료 ✓</span>
+          ${certBtn}
         </div>`;
       }
       if(openReviewOrderId===o.id){
@@ -1392,9 +1580,10 @@ function renderReviewsView(){
           </div>
         </div>`;
       }
-      return `<div class="port-row" style="grid-template-columns:1fr auto;">
+      return `<div class="port-row" style="grid-template-columns:1fr auto auto;">
         <span>${name} · ${o.grade}급 · ${won(o.price)}</span>
         <button class="mini-btn" onclick="openReviewOrderId=${o.id}; pendingRating[${o.id}]=5; renderReviewsView();">리뷰 쓰기</button>
+        ${certBtn}
       </div>`;
     }).join('');
   }
@@ -1427,6 +1616,76 @@ async function submitReview(orderId){
     await loadReviewsView();
     renderReviewsView();
   }
+}
+
+function renderPlusPanel(){
+  const el = document.getElementById('plusPanel');
+  if(!el) return;
+  if(!STATE.user){
+    el.innerHTML = `<div class="empty-state"><span class="glyph">🔒</span>로그인하면 이용할 수 있어요<br><button class="mini-btn" style="margin-top:10px;" onclick="openAuth()">로그인 / 회원가입</button></div>`;
+    return;
+  }
+  const plus = STATE.user.tier.plus;
+  const fee = STATE.fees.plus_monthly_fee;
+  if(plus.active){
+    const expiry = new Date(plus.expires_at).toLocaleDateString('ko-KR');
+    el.innerHTML = `
+      <p style="font-size:13px; margin-bottom:10px;">✅ 플러스 회원이에요! <b>${expiry}</b>까지 유효해요.</p>
+      <ul style="font-size:12px; color:var(--ink-muted); line-height:1.9; margin:0 0 12px 18px;">
+        <li>보관료 평생 무료 · 배송비 무료</li>
+        <li>매입·구매 스프레드 추가 0.5%p 할인</li>
+        <li>정품 인증서 무료 발급</li>
+      </ul>
+      <label style="display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--ink-muted);">
+        <input type="checkbox" ${plus.auto_renew?'checked':''} onchange="togglePlusAutoRenew()"> 자동 갱신 (다음 결제 ${won(fee)})
+      </label>`;
+  } else {
+    el.innerHTML = `
+      <p style="font-size:13px; margin-bottom:10px;">월 <b>${won(fee)}</b>로 아래 혜택을 모두 받아요.</p>
+      <ul style="font-size:12px; color:var(--ink-muted); line-height:1.9; margin:0 0 12px 18px;">
+        <li>보관료 평생 무료 · 배송비 무료</li>
+        <li>매입·구매 스프레드 추가 0.5%p 할인</li>
+        <li>정품 인증서 무료 발급 · 매입 빠른처리 수수료 면제</li>
+      </ul>
+      <button class="action-btn mint" onclick="subscribePlus()">플러스 구독하기 (${won(fee)}/월)</button>`;
+  }
+}
+async function subscribePlus(){
+  const r = await api('/api/plus/subscribe', {method:'POST'});
+  if(r){ toast('콩나물 플러스 구독 완료! 🌱'); await refresh(); renderPlusPanel(); }
+}
+async function togglePlusAutoRenew(){
+  const r = await api('/api/plus/toggle-autorenew', {method:'POST'});
+  if(r){ toast(r.auto_renew ? '자동 갱신을 켰어요' : '자동 갱신을 껐어요'); await refresh(); renderPlusPanel(); }
+}
+
+function downloadCertificate(tradeId){
+  if(!requireLogin()) return;
+  window.open(`/api/certificate/${tradeId}`, '_blank');
+  // 발급(과금)이 실제로 일어났을 수 있으니 목록/잔액을 갱신해요
+  setTimeout(async ()=>{ await loadReviewsView(); await refresh(); renderReviewsView(); }, 1200);
+}
+
+async function verifyCertificate(){
+  const code = document.getElementById('certVerifyInput').value.trim();
+  if(!code){ toast('인증코드를 입력해주세요'); return; }
+  const r = await api(`/api/verify-certificate/${encodeURIComponent(code)}`);
+  const box = document.getElementById('certVerifyResult');
+  box.style.display = '';
+  if(!r || !r.valid){
+    box.innerHTML = `<div class="risk-banner level2">❌ 유효하지 않은 인증코드예요. 다시 확인해주세요.</div>`;
+    return;
+  }
+  box.innerHTML = `
+    <div class="risk-banner" style="background:var(--mint-tint); border:1px solid var(--mint-line); color:var(--mint-deep);">✅ 유효한 정품 인증서예요</div>
+    <div style="margin-top:10px;">
+      <div class="port-row" style="grid-template-columns:1fr auto;"><span>상품명</span><span class="mono">${r.model_name}</span></div>
+      <div class="port-row" style="grid-template-columns:1fr auto;"><span>검수 등급</span><span class="mono">${r.grade}급</span></div>
+      <div class="port-row" style="grid-template-columns:1fr auto;"><span>구매가</span><span class="mono">${won(r.price)}</span></div>
+      <div class="port-row" style="grid-template-columns:1fr auto;"><span>구매자</span><span class="mono">${r.buyer_email_masked}</span></div>
+      <div class="port-row" style="grid-template-columns:1fr auto;"><span>구매일</span><span class="mono">${r.trade_date}</span></div>
+      <div class="port-row" style="grid-template-columns:1fr auto;"><span>발급일</span><span class="mono">${r.issued_at}</span></div>
+    </div>`;
 }
 
 // ---------------- 사업자 정보 ----------------
@@ -1462,7 +1721,8 @@ function connectSSE(){
       const data = JSON.parse(e.data);
       if(data.type==='connected') return;
       toast(data.message);
-      if(data.wallet_changed || ['sell_status','account'].includes(data.type)) refresh();
+      if(data.wallet_changed || ['sell_status','account','withdraw'].includes(data.type)) refresh();
+      if(data.type==='withdraw' && currentView==='withdraw'){ loadWithdrawals().then(renderWithdrawView); }
       if(data.type==='announcement'){ loadAnnouncements(); }
       if(data.type==='price_alert'){ loadPriceAlerts().then(()=>{ if(currentView==='trade') renderTradeTickers(); }); }
       if(data.type==='restock'){ loadWishlist().then(()=>{ if(currentView==='trade') renderTradeTickers(); }); refresh(); }

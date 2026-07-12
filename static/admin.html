@@ -194,6 +194,17 @@
       <div class="panel" id="depositsPanel"></div>
     </section>
 
+    <section class="view" id="view-withdrawals">
+      <div class="pagehead"><h1>출금 관리</h1><p>일반출금은 매주 일요일에 일괄 정산해요. ⚡즉시출금(켜져있다면)이 항상 위에 먼저 표시돼요.</p></div>
+      <div class="panel">
+        <div class="panel-title">일괄 정산 <span id="nextSettlementLabel" style="font-weight:400; color:var(--ink-faint); text-transform:none; font-size:10.5px;"></span></div>
+        <p style="font-size:12px; color:var(--ink-muted); margin-bottom:10px;">은행 대량이체 등으로 실제 송금을 먼저 처리한 뒤, 아래 버튼으로 대기중인 출금을 한 번에 완료 처리하세요.</p>
+        <button class="btn mint" onclick="batchSettleWithdrawals()">대기중인 출금 일괄 정산 처리</button>
+      </div>
+      <div class="filter-tabs" id="withdrawFilterTabs"></div>
+      <div class="panel" id="withdrawalsPanel"></div>
+    </section>
+
     <section class="view" id="view-inventory">
       <div class="pagehead"><h1>재고 관리</h1><p>모델·등급별 판매 가능 재고예요. 매입 정산이 완료되면 자동으로 1개씩 편입돼요.</p></div>
       <div class="panel" id="inventoryPanel"></div>
@@ -247,6 +258,14 @@
 
     <section class="view" id="view-settings">
       <div class="pagehead"><h1>운영 설정</h1><p>스프레드·수수료·시세갱신 주기를 코드 수정 없이 여기서 바꿀 수 있어요</p></div>
+      <div class="panel" style="background:var(--bean-tint); border-color:var(--bean-line);">
+        <div class="panel-title">결제 수단</div>
+        <div id="cardPaymentTogglePanel"></div>
+      </div>
+      <div class="panel" style="background:var(--bean-tint); border-color:var(--bean-line);">
+        <div class="panel-title">출금 정책</div>
+        <div id="instantWithdrawTogglePanel"></div>
+      </div>
       <div class="panel" id="settingsPanel"></div>
     </section>
 
@@ -308,7 +327,7 @@
 <script>
 const NAV = [
   {key:'revenue', label:'수익현황'}, {key:'orders', label:'주문내역'}, {key:'users', label:'계정정보'},
-  {key:'sellreq', label:'매입신청'}, {key:'deposits', label:'입금확인'}, {key:'inventory', label:'재고관리'},
+  {key:'sellreq', label:'매입신청'}, {key:'deposits', label:'입금확인'}, {key:'withdrawals', label:'출금관리'}, {key:'inventory', label:'재고관리'},
   {key:'atrisk', label:'매각위기'},
   {key:'products', label:'상품관리'}, {key:'prices', label:'시세관리'}, {key:'accounts', label:'계좌관리'}, {key:'settings', label:'설정'},
   {key:'bizinfo', label:'사업자정보'}, {key:'reviews', label:'리뷰관리'},
@@ -411,6 +430,7 @@ function loadCurrentView(){
   if(currentView==='users') loadUsers();
   if(currentView==='sellreq') loadSellRequests();
   if(currentView==='deposits') loadDeposits();
+  if(currentView==='withdrawals') loadWithdrawalsAdmin();
   if(currentView==='inventory') loadInventory();
   if(currentView==='atrisk') loadAtRisk();
   if(currentView==='products') loadProducts();
@@ -446,6 +466,7 @@ function revenueCards(d){
     <div class="stat-card"><div class="l">스프레드 수익</div><div class="v">${won(d.spread)}</div></div>
     <div class="stat-card"><div class="l">배송비 수익</div><div class="v">${won(d.delivery_fee)}</div></div>
     <div class="stat-card"><div class="l">보관료 수익</div><div class="v">${won(d.storage_fee)}</div></div>
+    <div class="stat-card"><div class="l">즉시출금 수수료</div><div class="v">${won(d.withdraw_fee)}</div></div>
     <div class="stat-card"><div class="l">총 수익</div><div class="v">${won(d.total_revenue)}</div></div>
   `;
 }
@@ -643,6 +664,55 @@ async function depositApprove(id){
 async function depositReject(id){
   const r = await api(`/api/admin/deposits/${id}/reject`, {method:'POST'});
   if(r){ toast('거절 처리했어요'); loadDeposits(); }
+}
+
+// ---------------- 출금관리 ----------------
+let withdrawFilter = 'pending';
+const WD_TABS = [{k:'pending',l:'대기중'},{k:'completed',l:'완료됨'},{k:'rejected',l:'거절됨'},{k:'',l:'전체'}];
+function renderWithdrawFilterTabs(){
+  const el = document.getElementById('withdrawFilterTabs'); el.innerHTML='';
+  WD_TABS.forEach(t=>{
+    const b = document.createElement('button');
+    b.className = withdrawFilter===t.k ? 'on' : '';
+    b.textContent = t.l;
+    b.onclick = ()=>{ withdrawFilter=t.k; renderWithdrawFilterTabs(); loadWithdrawalsAdmin(); };
+    el.appendChild(b);
+  });
+}
+async function loadWithdrawalsAdmin(){
+  renderWithdrawFilterTabs();
+  const stateR = await fetch('/api/state').then(r=>r.json()).catch(()=>null);
+  const label = document.getElementById('nextSettlementLabel');
+  if(label && stateR) label.textContent = `다음 정산일: ${stateR.fees.next_settlement_date}`;
+  const q = withdrawFilter ? `?status=${withdrawFilter}` : '';
+  const r = await api('/api/admin/withdrawals'+q);
+  if(!r) return;
+  const panel = document.getElementById('withdrawalsPanel');
+  if(r.withdrawals.length===0){ panel.innerHTML = '<div class="empty-state">해당 상태의 요청이 없어요</div>'; return; }
+  panel.innerHTML = r.withdrawals.map(w=>`
+    <div style="padding:12px 0; border-bottom:1px solid var(--border-soft); display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; ${w.priority==='instant'?'background:var(--bean-tint); border-radius:10px; padding-left:10px; padding-right:10px;':''}">
+      <span>
+        ${w.priority==='instant' ? '<b style="color:var(--bean-deep);">⚡즉시출금</b> ' : ''}
+        <span class="pill ${w.status}">${w.status}</span> ${w.email||'-'} · 신청 ${won(w.amount)} → 실지급 <b>${won(w.net_amount)}</b> (수수료 ${won(w.fee)})<br>
+        <span style="font-size:11px; color:var(--ink-faint);">입금계좌: ${w.bank_name} ${w.account_number} (${w.holder_name}) · ${fmtTime(w.created_at)}</span>
+      </span>
+      ${w.status==='pending' ? `<span class="btn-row"><button class="btn mint" onclick="withdrawComplete(${w.id})">송금완료 처리</button><button class="btn red" onclick="withdrawReject(${w.id})">거절</button></span>` : ''}
+    </div>
+  `).join('');
+}
+async function batchSettleWithdrawals(){
+  if(!confirm('대기중인 모든 출금 요청을 완료 처리할까요? 실제 송금(은행 대량이체 등)을 먼저 처리하신 뒤에 누르셔야 해요. 되돌릴 수 없어요.')) return;
+  const r = await api('/api/admin/withdrawals/batch-complete', {method:'POST'});
+  if(r){ toast(`${r.count}건, 총 ${won(r.total_net)} 일괄 정산 완료`); loadWithdrawalsAdmin(); }
+}
+async function withdrawComplete(id){
+  if(!confirm('실제로 계좌이체를 보내셨나요? 완료 처리하면 되돌릴 수 없어요.')) return;
+  const r = await api(`/api/admin/withdrawals/${id}/complete`, {method:'POST'});
+  if(r){ toast('출금 완료 처리했어요'); loadWithdrawalsAdmin(); }
+}
+async function withdrawReject(id){
+  const r = await api(`/api/admin/withdrawals/${id}/reject`, {method:'POST'});
+  if(r){ toast('거절 처리했어요 (잔액 환불됨)'); loadWithdrawalsAdmin(); }
 }
 
 // ---------------- 계좌관리 ----------------
@@ -858,12 +928,37 @@ const SETTINGS_META = [
   {k:'delivery_base_fee', l:'배송 기본료', unit:'원', mult:1, hint:'포장비 포함'},
   {k:'remote_surcharge', l:'제주/도서산간 할증', unit:'원', mult:1, hint:''},
   {k:'tick_seconds', l:'시세 갱신 주기', unit:'초', mult:1, hint:'운영에서는 하루 3회 수준(예: 28800초)을 권장해요'},
+  {k:'instant_withdraw_fee', l:'즉시출금 수수료', unit:'%', mult:100, hint:'일반출금은 항상 무료예요 (예: 1.5)'},
+  {k:'plus_monthly_fee', l:'플러스 월 구독료', unit:'원', mult:1, hint:''},
+  {k:'fast_track_fee', l:'매입 빠른처리 수수료', unit:'원', mult:1, hint:'정산액에서 차감돼요'},
+  {k:'certificate_fee', l:'정품 인증서 발급비', unit:'원', mult:1, hint:'플러스 회원은 무료'},
+  {k:'gift_service_fee', l:'선물하기 서비스료', unit:'원', mult:1, hint:''},
 ];
 let currentSettings = {};
 async function loadSettings(){
   const r = await api('/api/admin/settings');
   if(!r) return;
   currentSettings = r.settings;
+  const cardPanel = document.getElementById('cardPaymentTogglePanel');
+  const cardOn = !!currentSettings.card_payment_enabled;
+  cardPanel.innerHTML = `
+    <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+      <input type="checkbox" id="cardPaymentToggle" ${cardOn?'checked':''} onchange="toggleCardPayment()">
+      카드/간편결제(토스페이먼츠) 노출하기
+    </label>
+    <div class="empty-state" style="text-align:left; padding:8px 0 0;">
+      ${cardOn ? '✅ 카드결제가 켜져 있어요.' : '⏸️ 지금은 꺼져 있어서 고객 화면에 계좌이체만 보여요. 초기엔 계좌이체만으로 운영하다가, 실제 상점 결제 연동이 끝나면 여기서 켜세요.'}
+    </div>`;
+  const wPanel = document.getElementById('instantWithdrawTogglePanel');
+  const wOn = !!currentSettings.instant_withdraw_enabled;
+  wPanel.innerHTML = `
+    <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+      <input type="checkbox" id="instantWithdrawToggle" ${wOn?'checked':''} onchange="toggleInstantWithdraw()">
+      즉시출금 노출하기
+    </label>
+    <div class="empty-state" style="text-align:left; padding:8px 0 0;">
+      ${wOn ? '✅ 즉시출금이 켜져 있어요. 일반출금과 즉시출금이 함께 노출돼요.' : '⏸️ 지금은 꺼져 있어서 고객은 "일반출금"만 신청할 수 있고, 모든 출금이 매주 일요일에 일괄 정산돼요 ("출금관리" 탭의 "일괄 정산 처리" 버튼 이용).'}
+    </div>`;
   const panel = document.getElementById('settingsPanel');
   panel.innerHTML = SETTINGS_META.map(s=>{
     const displayVal = s.mult===100 ? (currentSettings[s.k]*100).toFixed(2) : currentSettings[s.k];
@@ -876,6 +971,16 @@ async function loadSettings(){
         </div>
       </div>`;
   }).join('') + `<button class="btn mint" onclick="saveSettings()">전체 저장</button>`;
+}
+async function toggleCardPayment(){
+  const on = document.getElementById('cardPaymentToggle').checked;
+  const r = await api('/api/admin/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({card_payment_enabled: on?1:0})});
+  if(r){ toast(on ? '카드결제를 켰어요' : '카드결제를 껐어요 (계좌이체만 노출)'); loadSettings(); }
+}
+async function toggleInstantWithdraw(){
+  const on = document.getElementById('instantWithdrawToggle').checked;
+  const r = await api('/api/admin/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({instant_withdraw_enabled: on?1:0})});
+  if(r){ toast(on ? '즉시출금을 켰어요' : '즉시출금을 껐어요 (주간 일괄정산만)'); loadSettings(); }
 }
 async function saveSettings(){
   const payload = {};
@@ -891,6 +996,7 @@ async function saveSettings(){
 const BIZ_FIELDS = [
   {k:'company_name', l:'상호명'}, {k:'ceo_name', l:'대표자'}, {k:'biz_reg_no', l:'사업자등록번호'},
   {k:'mail_order_no', l:'통신판매업 신고번호'}, {k:'address', l:'주소'}, {k:'phone', l:'전화번호'}, {k:'email', l:'이메일'},
+  {k:'admin_notify_emails', l:'운영 알림 받을 이메일 (쉼표로 여러개, 예: a@x.com,b@x.com)'},
 ];
 async function loadBizInfoAdmin(){
   const r = await api('/api/business-info');

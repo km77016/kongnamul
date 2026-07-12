@@ -106,6 +106,13 @@ DEFAULT_SETTINGS = {
     'delivery_base_fee': 5000,    # 포장비 포함
     'remote_surcharge': 3000,     # 제주/도서산간 추가요금
     'tick_seconds': 30,           # 데모용 주기. 운영에서는 하루 N회 수준(예: 28800)으로
+    'instant_withdraw_fee': 0.015,  # 즉시출금 수수료 (일반출금은 무료)
+    'plus_monthly_fee': 4900,       # 콩나물 플러스 월 구독료
+    'fast_track_fee': 5000,         # 매입 빠른처리 수수료 (정산액에서 차감)
+    'certificate_fee': 3000,        # 정품 인증서 발급 수수료 (플러스 회원 무료)
+    'gift_service_fee': 2000,       # 선물하기 포장/서비스 수수료
+    'card_payment_enabled': 0,      # 카드/간편결제 사용 여부. 0=계좌이체만, 1=카드결제도 노출
+    'instant_withdraw_enabled': 0,  # 즉시출금 노출 여부. 0=일반(주간 일괄정산)만, 1=즉시출금도 노출
 }
 _settings_cache = {}
 
@@ -130,7 +137,16 @@ def set_setting(key, value):
     _settings_cache[key] = float(value)
 
 
-def calc_storage_fee(ts_iso):
+def next_settlement_date():
+    """다음 출금 정산일(일요일, 한국시간 기준) 날짜를 ISO 문자열로 반환해요. 오늘이 일요일이면 오늘 날짜를 줘요."""
+    kst_now = datetime.now(timezone.utc) + timedelta(hours=9)
+    days_until_sunday = (6 - kst_now.weekday()) % 7  # 월요일=0 ... 일요일=6
+    return (kst_now + timedelta(days=days_until_sunday)).date().isoformat()
+
+
+def calc_storage_fee(ts_iso, is_plus=False):
+    if is_plus:
+        return 0
     from datetime import datetime as _dt
     stored_at = _dt.fromisoformat(ts_iso)
     now = _dt.now(timezone.utc)
@@ -153,6 +169,7 @@ app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SECURE'] = os.environ.get('AIRMRKT_FORCE_HTTPS') == '1'
 LAST_TICK = time.time()
 SERVER_STARTED_AT = datetime.now(timezone.utc).isoformat()
+_last_settlement_reminder_date = None  # 일요일 정산 리마인더를 하루에 한 번만 보내기 위한 추적용
 
 
 @app.after_request
@@ -179,6 +196,12 @@ def now_iso():
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    # WAL(Write-Ahead Logging) 모드: 읽기와 쓰기가 서로 덜 막게 해줘서 동시 접속에 훨씬 유리해요.
+    # busy_timeout: 다른 연결이 쓰고 있을 때 바로 에러내지 않고 최대 5초까지 기다렸다가 재시도해요.
+    # 둘 다 SQLite 파일 자체에 적용되는 설정이라 매 연결마다 실행해도 비용이 거의 없어요.
+    conn.execute('PRAGMA journal_mode=WAL')
+    conn.execute('PRAGMA busy_timeout=5000')
+    conn.execute('PRAGMA synchronous=NORMAL')
     return conn
 
 
@@ -303,6 +326,24 @@ def init_db(force=False):
         user_id INTEGER, model_key TEXT, grade TEXT, created_at TEXT,
         UNIQUE(user_id, model_key, grade)
     );
+    CREATE TABLE IF NOT EXISTS withdrawal_requests(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER, amount REAL, fee REAL, net_amount REAL,
+        bank_name TEXT, account_number TEXT, holder_name TEXT,
+        priority TEXT DEFAULT 'normal', status TEXT DEFAULT 'pending',
+        created_at TEXT, decided_at TEXT, decided_by TEXT
+    );
+    CREATE TABLE IF NOT EXISTS certificates(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        trade_id INTEGER UNIQUE, user_id INTEGER, cert_code TEXT UNIQUE,
+        fee_paid REAL, issued_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS gifts(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        from_user_id INTEGER, to_email TEXT, model_key TEXT, grade TEXT,
+        price REAL, service_fee REAL, message TEXT, status TEXT DEFAULT 'pending',
+        created_at TEXT, claimed_at TEXT, portfolio_item_id TEXT
+    );
     ''')
     # 기존 DB(이 컬럼이 추가되기 전에 만들어진 market.db)를 위한 간단한 마이그레이션
     try:
@@ -337,6 +378,27 @@ def init_db(force=False):
         c.execute('ALTER TABLE users ADD COLUMN phone_verified INTEGER DEFAULT 0')
     except sqlite3.OperationalError:
         pass
+    try:
+        c.execute('ALTER TABLE users ADD COLUMN plus_active INTEGER DEFAULT 0')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE users ADD COLUMN plus_expires_at TEXT')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE users ADD COLUMN plus_auto_renew INTEGER DEFAULT 1')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE sell_requests ADD COLUMN is_fast_track INTEGER DEFAULT 0')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE sell_requests ADD COLUMN fast_track_fee REAL DEFAULT 0')
+    except sqlite3.OperationalError:
+        pass
+    c.execute("INSERT OR IGNORE INTO business_info(key,value) VALUES ('admin_notify_emails','')")
     if fresh:
         for k, m in MODEL_DEFAULTS.items():
             c.execute('''INSERT INTO models(key,code,name,ratio_s,ratio_a,ratio_b,ratio_c,mid,floor_p,ceil_p,
@@ -380,6 +442,94 @@ def init_db(force=False):
             c.execute('INSERT INTO business_info(key,value) VALUES (?,?)', (k, v))
     conn.commit()
     conn.close()
+
+
+# ---------------- 정품 인증서 PDF 생성 ----------------
+# 리포트랩(reportlab)의 TrueType 폰트 로더는 CFF/OpenType 윤곽선(예: Noto Sans CJK 원본)을
+# 지원하지 않아서, 미리 TrueType(glyf) 형식으로 변환한 한글 서브셋 폰트를 fonts/ 폴더에
+# 번들해뒀습니다. 사용자 OS에 어떤 한글 폰트가 깔려있는지와 무관하게 항상 동작해요.
+CERT_FONT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fonts', 'NotoSansKR-Subset.ttf')
+_cert_font_ready = False
+
+def register_cert_font():
+    global _cert_font_ready
+    if _cert_font_ready:
+        return True
+    if not os.path.exists(CERT_FONT_PATH):
+        print(f'[경고] 인증서용 폰트를 찾을 수 없어요: {CERT_FONT_PATH}')
+        return False
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont as RLTTFont
+    pdfmetrics.registerFont(RLTTFont('KoreanCert', CERT_FONT_PATH))
+    _cert_font_ready = True
+    return True
+
+
+def generate_certificate_pdf(cert_code, model_name, grade, price, buyer_email, trade_date, issued_date):
+    from reportlab.pdfgen import canvas as rl_canvas
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    import io
+
+    have_font = register_cert_font()
+    FONT = 'KoreanCert' if have_font else 'Helvetica'
+
+    buf = io.BytesIO()
+    c = rl_canvas.Canvas(buf, pagesize=A4)
+    W, H = A4
+
+    c.setStrokeColorRGB(0.055, 0.62, 0.451)
+    c.setLineWidth(2)
+    c.rect(15 * mm, 15 * mm, W - 30 * mm, H - 30 * mm)
+    c.setStrokeColorRGB(0.58, 0.76, 0.23)
+    c.setLineWidth(0.6)
+    c.rect(18 * mm, 18 * mm, W - 36 * mm, H - 36 * mm)
+
+    c.setFont(FONT, 22)
+    c.setFillColorRGB(0.13, 0.17, 0.12)
+    c.drawCentredString(W / 2, H - 42 * mm, '콩나물')
+    c.setFont(FONT, 15)
+    c.drawCentredString(W / 2, H - 52 * mm, '정품 검수 인증서')
+    c.setFont('Helvetica', 9)
+    c.setFillColorRGB(0.45, 0.48, 0.4)
+    c.drawCentredString(W / 2, H - 59 * mm, 'Authenticity & Inspection Certificate')
+
+    c.setStrokeColorRGB(0.85, 0.85, 0.78)
+    c.line(30 * mm, H - 68 * mm, W - 30 * mm, H - 68 * mm)
+
+    rows = [
+        ('인증코드', cert_code),
+        ('상품명', model_name),
+        ('검수 등급', f'{grade}급'),
+        ('구매가', f'{int(price):,}원'),
+        ('구매자', buyer_email),
+        ('구매일', trade_date),
+        ('발급일', issued_date),
+    ]
+    y = H - 84 * mm
+    for label, value in rows:
+        c.setFont(FONT, 10)
+        c.setFillColorRGB(0.45, 0.48, 0.4)
+        c.drawString(32 * mm, y, label)
+        c.setFont(FONT, 12)
+        c.setFillColorRGB(0.13, 0.17, 0.12)
+        c.drawString(65 * mm, y, str(value))
+        y -= 10 * mm
+
+    y -= 6 * mm
+    c.setFont(FONT, 9)
+    c.setFillColorRGB(0.45, 0.48, 0.4)
+    c.drawString(32 * mm, y, '본 인증서는 콩나물이 자체 검수 프로세스를 통해 위 상품의 정품 여부와')
+    c.drawString(32 * mm, y - 5.5 * mm, '상태 등급을 확인했음을 증명합니다.')
+
+    c.setFont(FONT, 8)
+    c.setFillColorRGB(0.6, 0.6, 0.6)
+    c.drawCentredString(W / 2, 24 * mm, f'kongnamul market · {cert_code}')
+
+    c.showPage()
+    c.save()
+    buf.seek(0)
+    return buf.read()
 
 
 def send_email(to_email, subject, body):
@@ -607,6 +757,18 @@ def push_admin_notification(event_type, message, extra=None):
             q.put(payload)
 
 
+def notify_admin_emails(subject, body):
+    """관리자 대시보드 '사업자정보' 탭에서 설정한 admin_notify_emails로 운영 알림 이메일을 보내요.
+    비워두면 아무 것도 하지 않아요 (SSE 알림은 별개로 계속 동작해요)."""
+    conn = get_db()
+    row = conn.execute("SELECT value FROM business_info WHERE key='admin_notify_emails'").fetchone()
+    conn.close()
+    if not row or not row['value']:
+        return
+    for addr in [a.strip() for a in row['value'].split(',') if a.strip()]:
+        send_email(addr, subject, body)
+
+
 def notify_wishlist_if_restocked(c, model_key, grade, was_zero):
     """재고가 0 -> 양수로 바뀌었을 때만 찜한 유저들에게 알려요."""
     if not was_zero:
@@ -634,12 +796,26 @@ LOYALTY_TIERS = [  # (최소 거래횟수, 등급명, 스프레드 할인율)
     (5, '실버', 0.005),
     (0, '브론즈', 0.0),
 ]
+PLUS_DISCOUNT = 0.005       # 플러스 회원 추가 스프레드 할인폭 (등급 할인에 더해짐)
+PLUS_PERIOD_DAYS = 30
+
+def get_plus_status(uid):
+    conn = get_db()
+    row = conn.execute('SELECT plus_active, plus_expires_at, plus_auto_renew FROM users WHERE id=?', (uid,)).fetchone()
+    conn.close()
+    if not row:
+        return {'active': False, 'expires_at': None, 'auto_renew': True}
+    active = bool(row['plus_active']) and bool(row['plus_expires_at']) and \
+             datetime.fromisoformat(row['plus_expires_at']) > datetime.now(timezone.utc)
+    return {'active': active, 'expires_at': row['plus_expires_at'], 'auto_renew': bool(row['plus_auto_renew'])}
 
 def get_user_tier(uid):
     conn = get_db()
     row = conn.execute('SELECT COUNT(*) c FROM trades WHERE user_id=?', (uid,)).fetchone()
     conn.close()
     count = row['c'] if row else 0
+    plus = get_plus_status(uid)
+    plus_bonus = PLUS_DISCOUNT if plus['active'] else 0.0
     for threshold, name, discount in LOYALTY_TIERS:
         if count >= threshold:
             next_tier = None
@@ -647,8 +823,8 @@ def get_user_tier(uid):
             if idx > 0:
                 nt, nn, nd = LOYALTY_TIERS[idx-1]
                 next_tier = {'name': nn, 'need': nt - count}
-            return {'tier': name, 'trade_count': count, 'discount': discount, 'next_tier': next_tier}
-    return {'tier': '브론즈', 'trade_count': count, 'discount': 0.0, 'next_tier': None}
+            return {'tier': name, 'trade_count': count, 'discount': discount + plus_bonus, 'next_tier': next_tier, 'plus': plus}
+    return {'tier': '브론즈', 'trade_count': count, 'discount': plus_bonus, 'next_tier': None, 'plus': plus}
 
 
 def price_for(model_row, grade, side, discount=0.0):
@@ -720,7 +896,7 @@ def do_tick():
 
     # 보관료가 물건 가치를 위협할 만큼 쌓인 사용자에게 알림 (레벨 1: 70%↑, 레벨 2: 100%↑)
     for item in c.execute('SELECT p.*, u.email FROM portfolio p JOIN users u ON p.user_id=u.id').fetchall():
-        fee = calc_storage_fee(item['ts'])
+        fee = calc_storage_fee(item['ts'], get_plus_status(item['user_id'])['active'])
         if fee <= 0:
             continue
         model_row = c.execute('SELECT * FROM models WHERE key=?', (item['model_key'],)).fetchone()
@@ -738,6 +914,43 @@ def do_tick():
             send_email(item['email'], subject, body)
             c.execute('UPDATE portfolio SET risk_notified=? WHERE id=?', (level, item['id']))
             push_admin_notification('at_risk', f'매각위기: {item["email"]}님의 {item["model_key"]} {item["grade"]}급 (보관료 {int(ratio*100)}%)')
+
+    # 콩나물 플러스 자동갱신/만료 처리
+    now_dt = datetime.now(timezone.utc)
+    plus_fee = get_setting('plus_monthly_fee')
+    for u in c.execute('SELECT id, email, plus_expires_at, plus_auto_renew FROM users WHERE plus_active=1').fetchall():
+        if not u['plus_expires_at'] or datetime.fromisoformat(u['plus_expires_at']) > now_dt:
+            continue  # 아직 만료 안 됨
+        if u['plus_auto_renew']:
+            wrow = c.execute('SELECT balance FROM wallet WHERE user_id=?', (u['id'],)).fetchone()
+            if wrow and wrow['balance'] >= plus_fee:
+                c.execute('UPDATE wallet SET balance=balance-? WHERE user_id=?', (plus_fee, u['id']))
+                new_expiry = now_dt + timedelta(days=PLUS_PERIOD_DAYS)
+                c.execute('UPDATE users SET plus_expires_at=? WHERE id=?', (new_expiry.isoformat(), u['id']))
+                c.execute('INSERT INTO revenue_events(type,amount,user_id,ts) VALUES (?,?,?,?)',
+                           ('plus_subscription', plus_fee, u['id'], now_iso()))
+                push_notification(u['id'], 'plus_renewed', f'콩나물 플러스가 자동 갱신됐어요 ({int(plus_fee):,}원 차감)', {'wallet_changed': True})
+                continue
+        # 자동갱신 꺼져있거나 잔액 부족 -> 만료 처리
+        c.execute('UPDATE users SET plus_active=0 WHERE id=?', (u['id'],))
+        push_notification(u['id'], 'plus_expired', '콩나물 플러스 구독이 만료됐어요. 계속 이용하려면 다시 구독해주세요.')
+        send_email(u['email'], '[콩나물] 플러스 구독이 만료됐어요', '자동갱신이 꺼져있거나 잔액이 부족해서 콩나물 플러스가 만료됐어요. 다시 구독하시려면 사이트에서 구독하기를 눌러주세요.')
+
+    # 매주 일요일(한국시간) 출금 일괄정산 리마인더 - 하루에 한 번만 보내요
+    global _last_settlement_reminder_date
+    kst_today = (datetime.now(timezone.utc) + timedelta(hours=9)).date()
+    if kst_today.weekday() == 6 and _last_settlement_reminder_date != kst_today.isoformat():  # 6=일요일
+        pending = c.execute("SELECT COUNT(*) c, COALESCE(SUM(net_amount),0) s FROM withdrawal_requests WHERE status='pending'").fetchone()
+        if pending['c'] > 0:
+            push_admin_notification('settlement_day',
+                f'📅 오늘은 출금 정산일이에요! 대기중인 출금 {pending["c"]}건, 총 {int(pending["s"]):,}원')
+            notify_admin_emails(
+                '[콩나물] 오늘은 출금 정산일이에요',
+                f'대기중인 출금 요청이 {pending["c"]}건, 총 {int(pending["s"]):,}원 있어요.\n'
+                f'은행 대량이체로 실제 송금을 처리하신 뒤, 관리자 대시보드 "출금관리" 탭에서 '
+                f'"일괄 정산 처리" 버튼을 눌러주세요.'
+            )
+        _last_settlement_reminder_date = kst_today.isoformat()
 
     conn.commit()
     conn.close()
@@ -761,6 +974,7 @@ def api_state():
     c = conn.cursor()
     uid = current_user_id()
     my_discount = get_user_tier(uid)['discount'] if uid else 0.0
+    my_plus_active = get_plus_status(uid)['active'] if uid else False
     models = {}
     for m in c.execute('SELECT * FROM models').fetchall():
         hist = [r['mid'] for r in c.execute(
@@ -796,7 +1010,7 @@ def api_state():
             wallet_balance = wrow['balance'] if wrow else 0
             for r in c.execute('SELECT * FROM portfolio WHERE user_id=? ORDER BY ts DESC', (uid,)).fetchall():
                 item = dict(r)
-                item['storage_fee'] = calc_storage_fee(item['ts'])
+                item['storage_fee'] = calc_storage_fee(item['ts'], my_plus_active)
                 stored_at = datetime.fromisoformat(item['ts'])
                 if stored_at.tzinfo is None:
                     stored_at = stored_at.replace(tzinfo=timezone.utc)
@@ -820,6 +1034,14 @@ def api_state():
             'storage_fee_per_month': get_setting('storage_fee_per_month'),
             'delivery_base_fee': get_setting('delivery_base_fee'),
             'remote_surcharge': get_setting('remote_surcharge'),
+            'instant_withdraw_fee': get_setting('instant_withdraw_fee'),
+            'plus_monthly_fee': get_setting('plus_monthly_fee'),
+            'fast_track_fee': get_setting('fast_track_fee'),
+            'certificate_fee': get_setting('certificate_fee'),
+            'gift_service_fee': get_setting('gift_service_fee'),
+            'card_payment_enabled': bool(get_setting('card_payment_enabled')),
+            'instant_withdraw_enabled': bool(get_setting('instant_withdraw_enabled')),
+            'next_settlement_date': next_settlement_date(),
         },
     })
 
@@ -918,12 +1140,25 @@ def api_signup():
               (email, pw_hash, now_iso()))
     user_id = c.lastrowid
     c.execute('INSERT INTO wallet(user_id,balance) VALUES (?,?)', (user_id, 0))
+
+    # 가입 전에 받은 선물이 있으면 자동으로 보관함에 넣어줘요
+    claimed_count = 0
+    for g in c.execute("SELECT * FROM gifts WHERE to_email=? AND status='pending'", (email,)).fetchall():
+        item_id = 'itm-' + uuid.uuid4().hex[:8]
+        c.execute('INSERT INTO portfolio(id,user_id,model_key,grade,bought_price,ts) VALUES (?,?,?,?,?,?)',
+                   (item_id, user_id, g['model_key'], g['grade'], g['price'], now_iso()))
+        c.execute("UPDATE gifts SET status='claimed', claimed_at=?, portfolio_item_id=? WHERE id=?",
+                   (now_iso(), item_id, g['id']))
+        claimed_count += 1
     conn.commit(); conn.close()
 
     session['user_id'] = user_id
     token = issue_csrf_token()
     write_audit('user', email, 'signup')
-    return jsonify({'ok': True, 'user': {'email': email}, 'csrf_token': token})
+    resp = {'ok': True, 'user': {'email': email}, 'csrf_token': token}
+    if claimed_count:
+        resp['claimed_gifts'] = claimed_count
+    return jsonify(resp)
 
 
 @app.route('/api/auth/login', methods=['POST'])
@@ -1155,7 +1390,7 @@ def api_trade():
                 conn.close(); return jsonify({'error': '판매 시간이 종료됐어요'}), 400
         price = price_for(m, grade, 'sell', get_user_tier(uid)['discount'])
         delivery_fee = 0
-        if delivery == 'delivery':
+        if delivery == 'delivery' and not get_plus_status(uid)['active']:
             delivery_fee = get_setting('delivery_base_fee') + (get_setting('remote_surcharge') if region == 'remote' else 0)
         total = price + delivery_fee
         wallet_row = c.execute('SELECT balance FROM wallet WHERE user_id=?', (uid,)).fetchone()
@@ -1203,7 +1438,7 @@ def api_portfolio_sell(item_id):
         conn.close(); return jsonify({'error': 'not found'}), 404
     m = c.execute('SELECT * FROM models WHERE key=?', (item['model_key'],)).fetchone()
     price = price_for(m, item['grade'], 'buy', get_user_tier(uid)['discount'])
-    storage_fee = calc_storage_fee(item['ts'])
+    storage_fee = calc_storage_fee(item['ts'], get_plus_status(uid)['active'])
     net = max(0, price - storage_fee)
     c.execute('UPDATE wallet SET balance=balance+? WHERE user_id=?', (net, uid))
     c.execute('DELETE FROM portfolio WHERE id=?', (item_id,))
@@ -1232,8 +1467,8 @@ def api_portfolio_deliver(item_id):
     item = c.execute('SELECT * FROM portfolio WHERE id=? AND user_id=?', (item_id, uid)).fetchone()
     if not item:
         conn.close(); return jsonify({'error': 'not found'}), 404
-    storage_fee = calc_storage_fee(item['ts'])
-    delivery_base = get_setting('delivery_base_fee')
+    storage_fee = calc_storage_fee(item['ts'], get_plus_status(uid)['active'])
+    delivery_base = 0 if get_plus_status(uid)['active'] else get_setting('delivery_base_fee')
     surcharge = get_setting('remote_surcharge') if region == 'remote' else 0
     total = delivery_base + surcharge + storage_fee
     c.execute('DELETE FROM portfolio WHERE id=?', (item_id,))
@@ -1343,11 +1578,234 @@ def api_deposit_my():
     return jsonify({'requests': rows})
 
 
-# ---------------- 카드/간편결제 충전 (토스페이먼츠) ----------------
+# ---------------- 출금 ----------------
+
+@app.route('/api/withdraw/request', methods=['POST'])
+@login_required
+@csrf_protect
+@rate_limit(10, 300)
+def api_withdraw_request():
+    uid = current_user_id()
+    data = request.get_json(force=True)
+    ok, err = verify_pin(uid, data.get('pin'))
+    if not ok:
+        return jsonify({'error': err}), 403
+    try:
+        amount = float(data.get('amount'))
+    except (TypeError, ValueError):
+        return jsonify({'error': '금액이 올바르지 않아요'}), 400
+    priority = data.get('priority') if data.get('priority') in ('normal', 'instant') else 'normal'
+    if priority == 'instant' and not get_setting('instant_withdraw_enabled'):
+        return jsonify({'error': '지금은 즉시출금을 지원하지 않아요. 매주 일요일에 일괄 정산돼요'}), 400
+    bank_name = (data.get('bank_name') or '').strip()[:50]
+    account_number = (data.get('account_number') or '').strip()[:50]
+    holder_name = (data.get('holder_name') or '').strip()[:50]
+    if amount < 10000 or amount > 5000000:
+        return jsonify({'error': '1회 출금은 10,000원 이상 5,000,000원 이하로 요청해주세요'}), 400
+    if not (bank_name and account_number and holder_name):
+        return jsonify({'error': '입금받을 은행/계좌번호/예금주를 모두 입력해주세요'}), 400
+
+    conn = get_db(); c = conn.cursor()
+    wallet_row = c.execute('SELECT balance FROM wallet WHERE user_id=?', (uid,)).fetchone()
+    if not wallet_row or wallet_row['balance'] < amount:
+        conn.close(); return jsonify({'error': '잔액이 부족해요'}), 400
+
+    fee = round(amount * get_setting('instant_withdraw_fee')) if priority == 'instant' else 0
+    net_amount = amount - fee
+    ts = now_iso()
+
+    # 요청 금액은 즉시 지갑에서 차감(보류)해서 이중 출금/이중 사용을 막아요.
+    c.execute('UPDATE wallet SET balance=balance-? WHERE user_id=? AND balance>=?', (amount, uid, amount))
+    if c.rowcount == 0:
+        conn.close(); return jsonify({'error': '잔액이 부족해요'}), 400
+    c.execute('''INSERT INTO withdrawal_requests(user_id,amount,fee,net_amount,bank_name,account_number,holder_name,
+                 priority,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)''',
+              (uid, amount, fee, net_amount, bank_name, account_number, holder_name, priority, 'pending', ts))
+    req_id = c.lastrowid
+    requester = c.execute('SELECT email FROM users WHERE id=?', (uid,)).fetchone()
+    conn.commit(); conn.close()
+
+    label = '즉시출금' if priority == 'instant' else '일반출금'
+    push_admin_notification('new_withdraw',
+        f'{"🔥 " if priority=="instant" else ""}새 {label} 요청: {int(amount):,}원 (수수료 {int(fee):,}원)')
+    notify_admin_emails(
+        f'[콩나물] 새 {label} 요청이 들어왔어요',
+        f'{requester["email"] if requester else "알 수 없음"}님이 {label}을 요청했어요.\n\n'
+        f'요청 금액: {int(amount):,}원\n수수료: {int(fee):,}원\n실지급액: {int(net_amount):,}원\n'
+        f'입금계좌: {bank_name} {account_number} ({holder_name})\n\n'
+        f'관리자 대시보드 "출금관리" 탭에서 처리해주세요.'
+    )
+    write_audit('user', str(uid), 'withdraw_request', f'id={req_id} amount={amount} priority={priority}')
+    return jsonify({'ok': True, 'id': req_id, 'fee': fee, 'net_amount': net_amount})
+
+
+@app.route('/api/my-withdrawals')
+@login_required
+def api_my_withdrawals():
+    uid = current_user_id()
+    conn = get_db()
+    rows = [dict(r) for r in conn.execute(
+        'SELECT * FROM withdrawal_requests WHERE user_id=? ORDER BY id DESC LIMIT 20', (uid,)).fetchall()]
+    conn.close()
+    return jsonify({'requests': rows})
+
+
+@app.route('/api/withdraw/<int:req_id>/cancel', methods=['POST'])
+@login_required
+@csrf_protect
+def api_withdraw_cancel(req_id):
+    uid = current_user_id()
+    conn = get_db(); c = conn.cursor()
+    row = c.execute('SELECT * FROM withdrawal_requests WHERE id=? AND user_id=?', (req_id, uid)).fetchone()
+    if not row or row['status'] != 'pending':
+        conn.close(); return jsonify({'error': '취소할 수 없는 상태예요'}), 400
+    c.execute('UPDATE wallet SET balance=balance+? WHERE user_id=?', (row['amount'], uid))
+    c.execute("UPDATE withdrawal_requests SET status='cancelled', decided_at=? WHERE id=?", (now_iso(), req_id))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+# ---------------- 콩나물 플러스 (유료 멤버십) ----------------
+
+@app.route('/api/plus/subscribe', methods=['POST'])
+@login_required
+@csrf_protect
+@rate_limit(10, 300)
+def api_plus_subscribe():
+    uid = current_user_id()
+    fee = get_setting('plus_monthly_fee')
+    conn = get_db(); c = conn.cursor()
+    wallet_row = c.execute('SELECT balance FROM wallet WHERE user_id=?', (uid,)).fetchone()
+    if not wallet_row or wallet_row['balance'] < fee:
+        conn.close(); return jsonify({'error': '잔액이 부족해요. 먼저 충전해주세요'}), 400
+    user_row = c.execute('SELECT plus_active, plus_expires_at FROM users WHERE id=?', (uid,)).fetchone()
+    now = datetime.now(timezone.utc)
+    # 이미 활성 상태면 만료일에서 30일 연장, 아니면 지금부터 30일
+    base = now
+    if user_row['plus_active'] and user_row['plus_expires_at']:
+        existing_expiry = datetime.fromisoformat(user_row['plus_expires_at'])
+        if existing_expiry > now:
+            base = existing_expiry
+    new_expiry = base + timedelta(days=PLUS_PERIOD_DAYS)
+    c.execute('UPDATE wallet SET balance=balance-? WHERE user_id=? AND balance>=?', (fee, uid, fee))
+    if c.rowcount == 0:
+        conn.close(); return jsonify({'error': '잔액이 부족해요'}), 400
+    c.execute('UPDATE users SET plus_active=1, plus_expires_at=? WHERE id=?', (new_expiry.isoformat(), uid))
+    c.execute('INSERT INTO revenue_events(type,amount,user_id,ts) VALUES (?,?,?,?)',
+               ('plus_subscription', fee, uid, now_iso()))
+    conn.commit(); conn.close()
+    write_audit('user', str(uid), 'plus_subscribe', f'fee={fee} until={new_expiry.isoformat()}')
+    return jsonify({'ok': True, 'expires_at': new_expiry.isoformat(), 'fee': fee})
+
+
+@app.route('/api/plus/toggle-autorenew', methods=['POST'])
+@login_required
+@csrf_protect
+def api_plus_toggle_autorenew():
+    uid = current_user_id()
+    conn = get_db(); c = conn.cursor()
+    row = c.execute('SELECT plus_auto_renew FROM users WHERE id=?', (uid,)).fetchone()
+    new_val = 0 if row['plus_auto_renew'] else 1
+    c.execute('UPDATE users SET plus_auto_renew=? WHERE id=?', (new_val, uid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'auto_renew': bool(new_val)})
+
+
+# ---------------- 선물하기 ----------------
+
+@app.route('/api/gift/send', methods=['POST'])
+@login_required
+@csrf_protect
+@rate_limit(10, 300)
+def api_gift_send():
+    uid = current_user_id()
+    data = request.get_json(force=True)
+    ok, err = verify_pin(uid, data.get('pin'))
+    if not ok:
+        return jsonify({'error': err}), 403
+    model_key = data.get('model')
+    grade = data.get('grade')
+    to_email = (data.get('to_email') or '').strip().lower()
+    message = (data.get('message') or '').strip()[:200]
+    if not EMAIL_RE.match(to_email):
+        return jsonify({'error': '받는 분의 이메일을 올바르게 입력해주세요'}), 400
+
+    conn = get_db(); c = conn.cursor()
+    m = c.execute('SELECT * FROM models WHERE key=?', (model_key,)).fetchone()
+    if not m or grade not in GRADES:
+        conn.close(); return jsonify({'error': 'invalid model/grade'}), 400
+    if m['drop_start'] or m['drop_end']:
+        now = datetime.now(timezone.utc)
+        if m['drop_start'] and now < datetime.fromisoformat(m['drop_start']):
+            conn.close(); return jsonify({'error': '아직 판매 시작 전이에요'}), 400
+        if m['drop_end'] and now > datetime.fromisoformat(m['drop_end']):
+            conn.close(); return jsonify({'error': '판매 시간이 종료됐어요'}), 400
+
+    price = price_for(m, grade, 'sell', get_user_tier(uid)['discount'])
+    service_fee = get_setting('gift_service_fee')
+    total = price + service_fee
+
+    c.execute('UPDATE stock SET qty=qty-1 WHERE model_key=? AND grade=? AND qty>0', (model_key, grade))
+    if c.rowcount == 0:
+        conn.close(); return jsonify({'error': '방금 품절됐어요'}), 400
+    c.execute('UPDATE wallet SET balance=balance-? WHERE user_id=? AND balance>=?', (total, uid, total))
+    if c.rowcount == 0:
+        c.execute('UPDATE stock SET qty=qty+1 WHERE model_key=? AND grade=?', (model_key, grade))
+        conn.commit(); conn.close()
+        return jsonify({'error': '잔액이 부족해요'}), 400
+
+    ts = now_iso()
+    c.execute('INSERT INTO trades(user_id,model_key,grade,side,price,label,ts,pending) VALUES (?,?,?,?,?,?,?,1)',
+              (uid, model_key, grade, 'sell_to_user', price, '선물구매', ts))
+    c.execute('UPDATE models SET internal_trade_count=internal_trade_count+1 WHERE key=?', (model_key,))
+    c.execute('UPDATE stats SET today_trades=today_trades+1 WHERE id=1')
+    if service_fee > 0:
+        c.execute('INSERT INTO revenue_events(type,amount,user_id,ts) VALUES (?,?,?,?)',
+                   ('gift_service_fee', service_fee, uid, ts))
+
+    recipient = c.execute('SELECT id, email FROM users WHERE email=?', (to_email,)).fetchone()
+    if recipient:
+        item_id = 'itm-' + uuid.uuid4().hex[:8]
+        c.execute('INSERT INTO portfolio(id,user_id,model_key,grade,bought_price,ts) VALUES (?,?,?,?,?,?)',
+                   (item_id, recipient['id'], model_key, grade, price, ts))
+        c.execute('''INSERT INTO gifts(from_user_id,to_email,model_key,grade,price,service_fee,message,status,
+                     created_at,claimed_at,portfolio_item_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)''',
+                  (uid, to_email, model_key, grade, price, service_fee, message, 'claimed', ts, ts, item_id))
+        push_notification(recipient['id'], 'gift_received',
+            f'🎁 선물이 도착했어요! {m["name"]} {grade}급' + (f' - "{message}"' if message else ''))
+        send_email(to_email, '[콩나물] 선물이 도착했어요',
+            f'{m["name"]} {grade}급 상품을 선물로 받으셨어요!\n' + (f'메시지: {message}\n\n' if message else '\n') +
+            '로그인해서 보관함을 확인해보세요.')
+        recipient_exists = True
+    else:
+        c.execute('''INSERT INTO gifts(from_user_id,to_email,model_key,grade,price,service_fee,message,status,created_at)
+                     VALUES (?,?,?,?,?,?,?,?,?)''',
+                  (uid, to_email, model_key, grade, price, service_fee, message, 'pending', ts))
+        send_email(to_email, '[콩나물] 선물이 도착했어요! 가입하고 받아보세요',
+            f'콩나물에서 {m["name"]} {grade}급 상품을 선물로 받으셨어요!\n' + (f'메시지: {message}\n\n' if message else '\n') +
+            f'이 이메일({to_email})로 회원가입하시면 자동으로 보관함에 들어와요.')
+        recipient_exists = False
+
+    conn.commit(); conn.close()
+    write_audit('user', str(uid), 'gift_send', f'to={to_email} model={model_key} grade={grade}')
+    return jsonify({'ok': True, 'price': price, 'service_fee': service_fee, 'total': total, 'recipient_exists': recipient_exists})
+
+
+@app.route('/api/my-gifts-sent')
+@login_required
+def api_my_gifts_sent():
+    uid = current_user_id()
+    conn = get_db()
+    rows = conn.execute('SELECT * FROM gifts WHERE from_user_id=? ORDER BY id DESC LIMIT 30', (uid,)).fetchall()
+    conn.close()
+    return jsonify({'gifts': [dict(r) for r in rows]})
+
+
+
 
 @app.route('/api/pg/config')
 def api_pg_config():
-    return jsonify({'client_key': TOSS_CLIENT_KEY})
+    return jsonify({'client_key': TOSS_CLIENT_KEY, 'enabled': bool(get_setting('card_payment_enabled'))})
 
 
 @app.route('/api/pg/create-order', methods=['POST'])
@@ -1356,6 +1814,8 @@ def api_pg_config():
 @rate_limit(10, 300)
 def api_pg_create_order():
     uid = current_user_id()
+    if not get_setting('card_payment_enabled'):
+        return jsonify({'error': '지금은 계좌이체로만 충전할 수 있어요'}), 400
     data = request.get_json(force=True)
     try:
         amount = int(float(data.get('amount')))
@@ -1443,19 +1903,22 @@ def api_sell_request():
     model_key = data.get('model')
     grade = data.get('grade')
     note = (data.get('note') or '').strip()[:500]
+    fast_track = bool(data.get('fast_track'))
     conn = get_db(); c = conn.cursor()
     m = c.execute('SELECT * FROM models WHERE key=?', (model_key,)).fetchone()
     if not m or grade not in GRADES:
         conn.close(); return jsonify({'error': 'invalid model/grade'}), 400
     estimated = price_for(m, grade, 'buy', get_user_tier(uid)['discount'])
+    is_plus = get_plus_status(uid)['active']
+    ft_fee = 0 if (not fast_track or is_plus) else get_setting('fast_track_fee')
     ts = now_iso()
-    c.execute('''INSERT INTO sell_requests(user_id,model_key,self_grade,note,estimated_price,status,created_at,updated_at)
-                 VALUES (?,?,?,?,?,?,?,?)''', (uid, model_key, grade, note, estimated, 'submitted', ts, ts))
+    c.execute('''INSERT INTO sell_requests(user_id,model_key,self_grade,note,estimated_price,status,created_at,updated_at,is_fast_track,fast_track_fee)
+                 VALUES (?,?,?,?,?,?,?,?,?,?)''', (uid, model_key, grade, note, estimated, 'submitted', ts, ts, 1 if fast_track else 0, ft_fee))
     req_id = c.lastrowid
     conn.commit(); conn.close()
-    write_audit('user', str(uid), 'sell_request_submit', f'id={req_id} model={model_key} grade={grade}')
-    push_admin_notification('new_sellreq', f'새 매입신청: {model_key} {grade}급 (예상가 {int(estimated):,}원)')
-    return jsonify({'ok': True, 'id': req_id, 'estimated_price': estimated, 'shipping_address': INSPECTION_ADDRESS})
+    write_audit('user', str(uid), 'sell_request_submit', f'id={req_id} model={model_key} grade={grade} fast_track={fast_track}')
+    push_admin_notification('new_sellreq', f'{"🚀 빠른처리 " if fast_track else ""}새 매입신청: {model_key} {grade}급 (예상가 {int(estimated):,}원)')
+    return jsonify({'ok': True, 'id': req_id, 'estimated_price': estimated, 'fast_track_fee': ft_fee, 'shipping_address': INSPECTION_ADDRESS})
 
 
 @app.route('/api/sell/my')
@@ -1664,17 +2127,97 @@ def api_popular():
 @app.route('/api/my-orders')
 @login_required
 def api_my_orders():
-    """내가 구매체결한 거래 목록 + 이미 리뷰를 남겼는지 여부"""
+    """내가 구매체결한 거래 목록 + 이미 리뷰를 남겼는지 여부 + 인증서 발급여부"""
     uid = current_user_id()
     conn = get_db()
     rows = conn.execute('''
         SELECT t.id, t.model_key, t.grade, t.price, t.ts,
-               (SELECT COUNT(*) FROM reviews r WHERE r.trade_id=t.id) as reviewed
+               (SELECT COUNT(*) FROM reviews r WHERE r.trade_id=t.id) as reviewed,
+               (SELECT COUNT(*) FROM certificates ce WHERE ce.trade_id=t.id) as has_certificate
         FROM trades t WHERE t.user_id=? AND t.side='sell_to_user'
         ORDER BY t.id DESC LIMIT 50
     ''', (uid,)).fetchall()
     conn.close()
     return jsonify({'orders': [dict(r) for r in rows]})
+
+
+@app.route('/api/certificate/<int:trade_id>')
+@login_required
+def api_certificate(trade_id):
+    uid = current_user_id()
+    conn = get_db(); c = conn.cursor()
+    trade = c.execute('SELECT * FROM trades WHERE id=? AND user_id=? AND side=?',
+                       (trade_id, uid, 'sell_to_user')).fetchone()
+    if not trade:
+        conn.close(); return jsonify({'error': '본인이 구매한 거래만 인증서를 발급할 수 있어요'}), 400
+
+    existing = c.execute('SELECT * FROM certificates WHERE trade_id=?', (trade_id,)).fetchone()
+    if not existing:
+        is_plus = get_plus_status(uid)['active']
+        fee = 0 if is_plus else get_setting('certificate_fee')
+        if fee > 0:
+            wrow = c.execute('SELECT balance FROM wallet WHERE user_id=?', (uid,)).fetchone()
+            if not wrow or wrow['balance'] < fee:
+                conn.close(); return jsonify({'error': f'인증서 발급에는 {int(fee):,}원이 필요해요. 잔액이 부족해요'}), 400
+            c.execute('UPDATE wallet SET balance=balance-? WHERE user_id=? AND balance>=?', (fee, uid, fee))
+            if c.rowcount == 0:
+                conn.close(); return jsonify({'error': '잔액이 부족해요'}), 400
+            c.execute('INSERT INTO revenue_events(type,amount,user_id,ts) VALUES (?,?,?,?)',
+                       ('certificate_fee', fee, uid, now_iso()))
+        cert_code = 'KN-' + secrets.token_hex(4).upper()
+        c.execute('INSERT INTO certificates(trade_id,user_id,cert_code,fee_paid,issued_at) VALUES (?,?,?,?,?)',
+                   (trade_id, uid, cert_code, fee, now_iso()))
+        conn.commit()
+        write_audit('user', str(uid), 'issue_certificate', f'trade_id={trade_id} fee={fee}')
+        existing = c.execute('SELECT * FROM certificates WHERE trade_id=?', (trade_id,)).fetchone()
+
+    m = c.execute('SELECT name FROM models WHERE key=?', (trade['model_key'],)).fetchone()
+    user = c.execute('SELECT email FROM users WHERE id=?', (uid,)).fetchone()
+    conn.close()
+
+    pdf_bytes = generate_certificate_pdf(
+        existing['cert_code'],
+        m['name'] if m else trade['model_key'],
+        trade['grade'],
+        trade['price'],
+        user['email'],
+        trade['ts'][:10],
+        existing['issued_at'][:10],
+    )
+    return Response(pdf_bytes, mimetype='application/pdf', headers={
+        'Content-Disposition': f'inline; filename="kongnamul_certificate_{existing["cert_code"]}.pdf"'
+    })
+
+
+@app.route('/api/verify-certificate/<cert_code>')
+def api_verify_certificate(cert_code):
+    """누구나(로그인 없이) 인증코드로 진위를 확인할 수 있는 공개 조회 API예요.
+    구매자 이메일은 일부만 노출해서 개인정보를 보호해요."""
+    cert_code = cert_code.strip().upper()
+    conn = get_db()
+    row = conn.execute('SELECT * FROM certificates WHERE cert_code=?', (cert_code,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'valid': False})
+    trade = conn.execute('SELECT * FROM trades WHERE id=?', (row['trade_id'],)).fetchone()
+    m = conn.execute('SELECT name, code FROM models WHERE key=?', (trade['model_key'],)).fetchone() if trade else None
+    user = conn.execute('SELECT email FROM users WHERE id=?', (row['user_id'],)).fetchone()
+    conn.close()
+    if not trade or not user:
+        return jsonify({'valid': False})
+    email = user['email']
+    name, _, domain = email.partition('@')
+    masked_email = (name[:2] + '***@' + domain) if len(name) > 2 else ('**@' + domain)
+    return jsonify({
+        'valid': True,
+        'cert_code': row['cert_code'],
+        'model_name': m['name'] if m else trade['model_key'],
+        'grade': trade['grade'],
+        'price': trade['price'],
+        'buyer_email_masked': masked_email,
+        'trade_date': trade['ts'][:10],
+        'issued_at': row['issued_at'][:10],
+    })
 
 
 @app.route('/api/reviews')
@@ -1873,11 +2416,12 @@ def api_admin_revenue():
         sell_total = conn.execute(f"SELECT COALESCE(SUM(price),0) v FROM trades WHERE side='sell_to_user' {where}").fetchone()['v']
         delivery_fee = conn.execute(f"SELECT COALESCE(SUM(amount),0) v FROM revenue_events WHERE type='delivery_fee' {where}").fetchone()['v']
         storage_fee = conn.execute(f"SELECT COALESCE(SUM(amount),0) v FROM revenue_events WHERE type='storage_fee' {where}").fetchone()['v']
+        withdraw_fee = conn.execute(f"SELECT COALESCE(SUM(amount),0) v FROM revenue_events WHERE type='withdraw_fee' {where}").fetchone()['v']
         spread = sell_total - buy_total
         return {
             'buy_total': buy_total, 'sell_total': sell_total, 'spread': spread,
-            'delivery_fee': delivery_fee, 'storage_fee': storage_fee,
-            'total_revenue': spread + delivery_fee + storage_fee,
+            'delivery_fee': delivery_fee, 'storage_fee': storage_fee, 'withdraw_fee': withdraw_fee,
+            'total_revenue': spread + delivery_fee + storage_fee + withdraw_fee,
         }
     today = datetime.now(timezone.utc).date().isoformat()
     all_time = agg()
@@ -1934,6 +2478,87 @@ def api_admin_deposit_reject(dep_id):
     conn.commit(); conn.close()
     write_audit('admin', session.get('admin_username'), 'reject_deposit', f'id={dep_id}')
     push_notification(dep['user_id'], 'deposit', f'충전 요청 {int(dep["amount"]):,}원이 거절됐어요. 입금 내역을 확인해주세요.')
+    return jsonify({'ok': True})
+
+
+# ---------------- 관리자: 출금 관리 ----------------
+
+@app.route('/api/admin/withdrawals')
+@admin_required
+def api_admin_withdrawals():
+    status = request.args.get('status')
+    conn = get_db()
+    q = '''SELECT w.*, u.email FROM withdrawal_requests w LEFT JOIN users u ON w.user_id=u.id'''
+    params = []
+    if status:
+        q += ' WHERE w.status=?'
+        params.append(status)
+    q += ' ORDER BY (w.priority=\'instant\') DESC, w.id ASC LIMIT 100'
+    rows = conn.execute(q, params).fetchall()
+    conn.close()
+    return jsonify({'withdrawals': [dict(r) for r in rows]})
+
+
+@app.route('/api/admin/withdrawals/batch-complete', methods=['POST'])
+@admin_required
+@csrf_protect
+def api_admin_withdraw_batch_complete():
+    """대기중인 출금 요청을 한 번에 전부 완료 처리해요. 실제 송금은 관리자가 은행 대량이체
+    기능 등으로 미리 처리했다는 전제예요 (이 앱이 실제로 계좌에 돈을 보내주진 않아요)."""
+    conn = get_db(); c = conn.cursor()
+    rows = c.execute("SELECT * FROM withdrawal_requests WHERE status='pending'").fetchall()
+    if not rows:
+        conn.close(); return jsonify({'error': '대기중인 출금 요청이 없어요'}), 400
+    ts = now_iso()
+    total_net = 0
+    for row in rows:
+        c.execute("UPDATE withdrawal_requests SET status='completed', decided_at=?, decided_by=? WHERE id=?",
+                   (ts, session.get('admin_username'), row['id']))
+        if row['fee'] > 0:
+            c.execute('INSERT INTO revenue_events(type,amount,user_id,ts) VALUES (?,?,?,?)',
+                       ('withdraw_fee', row['fee'], row['user_id'], ts))
+        push_notification(row['user_id'], 'withdraw',
+            f'출금이 완료됐어요! {row["bank_name"]} {row["account_number"]}로 {int(row["net_amount"]):,}원을 보내드렸어요.')
+        total_net += row['net_amount']
+    conn.commit(); conn.close()
+    write_audit('admin', session.get('admin_username'), 'batch_complete_withdraw', f'{len(rows)}건 총 {total_net}원')
+    return jsonify({'ok': True, 'count': len(rows), 'total_net': total_net})
+
+
+@app.route('/api/admin/withdrawals/<int:req_id>/complete', methods=['POST'])
+@admin_required
+@csrf_protect
+def api_admin_withdraw_complete(req_id):
+    conn = get_db(); c = conn.cursor()
+    row = c.execute('SELECT * FROM withdrawal_requests WHERE id=?', (req_id,)).fetchone()
+    if not row or row['status'] != 'pending':
+        conn.close(); return jsonify({'error': '처리할 수 없는 상태예요'}), 400
+    c.execute("UPDATE withdrawal_requests SET status='completed', decided_at=?, decided_by=? WHERE id=?",
+              (now_iso(), session.get('admin_username'), req_id))
+    if row['fee'] > 0:
+        c.execute('INSERT INTO revenue_events(type,amount,user_id,ts) VALUES (?,?,?,?)',
+                   ('withdraw_fee', row['fee'], row['user_id'], now_iso()))
+    conn.commit(); conn.close()
+    write_audit('admin', session.get('admin_username'), 'complete_withdraw', f'id={req_id} net={row["net_amount"]}')
+    push_notification(row['user_id'], 'withdraw',
+        f'출금이 완료됐어요! {row["bank_name"]} {row["account_number"]}로 {int(row["net_amount"]):,}원을 보내드렸어요.')
+    return jsonify({'ok': True})
+
+
+@app.route('/api/admin/withdrawals/<int:req_id>/reject', methods=['POST'])
+@admin_required
+@csrf_protect
+def api_admin_withdraw_reject(req_id):
+    conn = get_db(); c = conn.cursor()
+    row = c.execute('SELECT * FROM withdrawal_requests WHERE id=?', (req_id,)).fetchone()
+    if not row or row['status'] != 'pending':
+        conn.close(); return jsonify({'error': '처리할 수 없는 상태예요'}), 400
+    c.execute('UPDATE wallet SET balance=balance+? WHERE user_id=?', (row['amount'], row['user_id']))
+    c.execute("UPDATE withdrawal_requests SET status='rejected', decided_at=?, decided_by=? WHERE id=?",
+              (now_iso(), session.get('admin_username'), req_id))
+    conn.commit(); conn.close()
+    write_audit('admin', session.get('admin_username'), 'reject_withdraw', f'id={req_id}')
+    push_notification(row['user_id'], 'withdraw', f'출금 요청 {int(row["amount"]):,}원이 거절돼서 잔액으로 돌려드렸어요.', {'wallet_changed': True})
     return jsonify({'ok': True})
 
 
@@ -2106,7 +2731,7 @@ def api_admin_at_risk():
         m = conn.execute('SELECT * FROM models WHERE key=?', (item['model_key'],)).fetchone()
         if not m:
             continue
-        fee = calc_storage_fee(item['ts'])
+        fee = calc_storage_fee(item['ts'], get_plus_status(item['user_id'])['active'])
         value = price_for(m, item['grade'], 'buy')
         ratio = (fee / value) if value > 0 else 0
         level = 2 if ratio >= 1.0 else (1 if ratio >= 0.7 else 0)
@@ -2134,7 +2759,7 @@ def api_admin_liquidate(item_id):
         conn.close(); return jsonify({'error': 'not found'}), 404
     m = c.execute('SELECT * FROM models WHERE key=?', (item['model_key'],)).fetchone()
     price = price_for(m, item['grade'], 'buy')
-    storage_fee = calc_storage_fee(item['ts'])
+    storage_fee = calc_storage_fee(item['ts'], get_plus_status(item['user_id'])['active'])
     net = max(0, price - storage_fee)
     ts = now_iso()
     c.execute('UPDATE wallet SET balance=balance+? WHERE user_id=?', (net, item['user_id']))
@@ -2310,7 +2935,10 @@ SETTINGS_BOUNDS = {
     'buy_spread': (0, 0.5), 'sell_markup': (0, 0.5),
     'storage_free_days': (0, 365), 'storage_fee_per_month': (0, 1000000),
     'delivery_base_fee': (0, 1000000), 'remote_surcharge': (0, 1000000),
-    'tick_seconds': (5, 86400),
+    'tick_seconds': (5, 86400), 'instant_withdraw_fee': (0, 0.2),
+    'plus_monthly_fee': (0, 100000), 'fast_track_fee': (0, 100000),
+    'certificate_fee': (0, 50000), 'gift_service_fee': (0, 50000),
+    'card_payment_enabled': (0, 1), 'instant_withdraw_enabled': (0, 1),
 }
 
 @app.route('/api/admin/settings')
@@ -2353,7 +2981,7 @@ def api_admin_sell_requests():
     if status:
         q += ' WHERE s.status=?'
         params.append(status)
-    q += ' ORDER BY s.id DESC LIMIT 100'
+    q += ' ORDER BY s.is_fast_track DESC, s.id DESC LIMIT 100'
     rows = conn.execute(q, params).fetchall()
     conn.close()
     return jsonify({'requests': [dict(r) for r in rows]})
@@ -2406,21 +3034,27 @@ def api_admin_sell_payout(req_id):
     if not row or row['status'] != 'inspected':
         conn.close(); return jsonify({'error': '처리할 수 없는 상태예요'}), 400
     ts = now_iso()
-    c.execute('UPDATE wallet SET balance=balance+? WHERE user_id=?', (row['final_price'], row['user_id']))
+    ft_fee = row['fast_track_fee'] or 0
+    net_paid = max(0, row['final_price'] - ft_fee)
+    c.execute('UPDATE wallet SET balance=balance+? WHERE user_id=?', (net_paid, row['user_id']))
     c.execute('INSERT INTO trades(user_id,model_key,grade,side,price,label,ts,pending) VALUES (?,?,?,?,?,?,?,1)',
               (row['user_id'], row['model_key'], row['final_grade'], 'buy_from_user', row['final_price'], '매입체결(검수완료)', ts))
     c.execute('UPDATE models SET internal_trade_count=internal_trade_count+1 WHERE key=?', (row['model_key'],))
     c.execute('UPDATE stats SET today_trades=today_trades+1, total_inspected=total_inspected+1 WHERE id=1')
     c.execute('UPDATE sell_requests SET status=?, updated_at=? WHERE id=?', ('paid', ts, req_id))
+    if ft_fee > 0:
+        c.execute('INSERT INTO revenue_events(type,amount,user_id,ts) VALUES (?,?,?,?)',
+                   ('fast_track_fee', ft_fee, row['user_id'], ts))
     # 매입 완료된 실물은 클리닝/재포장 후 판매 가능 재고로 편입돼요
     prev_stock = c.execute('SELECT qty FROM stock WHERE model_key=? AND grade=?', (row['model_key'], row['final_grade'])).fetchone()
     c.execute('UPDATE stock SET qty=qty+1 WHERE model_key=? AND grade=?', (row['model_key'], row['final_grade']))
     notify_wishlist_if_restocked(c, row['model_key'], row['final_grade'], prev_stock and prev_stock['qty'] == 0)
     conn.commit(); conn.close()
-    write_audit('admin', session.get('admin_username'), 'sell_payout', f'id={req_id} amount={row["final_price"]}')
+    write_audit('admin', session.get('admin_username'), 'sell_payout', f'id={req_id} amount={row["final_price"]} fast_track_fee={ft_fee}')
     write_audit('admin', session.get('admin_username'), 'inventory_auto_add', f'{row["model_key"]} {row["final_grade"]} +1 (from sell_request #{req_id})')
-    push_notification(row['user_id'], 'sell_status', f'정산 완료! {int(row["final_price"]):,}원이 잔액에 입금됐어요.', {'wallet_changed': True})
-    return jsonify({'ok': True, 'paid': row['final_price']})
+    push_notification(row['user_id'], 'sell_status',
+        f'정산 완료! {int(net_paid):,}원이 잔액에 입금됐어요.' + (f' (빠른처리 수수료 {int(ft_fee):,}원 차감)' if ft_fee else ''), {'wallet_changed': True})
+    return jsonify({'ok': True, 'paid': net_paid})
 
 
 @app.route('/api/admin/sell-requests/<int:req_id>/reject', methods=['POST'])
@@ -2451,8 +3085,20 @@ def index():
     return app.send_static_file('index.html')
 
 
-if __name__ == '__main__':
-    init_db()
-    load_settings_cache()
+# ---------------- 앱 초기화 ----------------
+# 예전엔 이 블록이 `if __name__ == '__main__':` 안에 있었는데, 그러면 `python3 app.py`로
+# 직접 실행할 때만 동작하고 gunicorn처럼 모듈을 import해서 쓰는 프로덕션 서버에서는
+# init_db()도, 시세갱신 스케줄러도 아예 실행되지 않는 문제가 있었어요. 그래서 모듈이
+# import되는 시점에 항상 실행되도록 옮겼습니다 (개발 서버 실행이든 gunicorn이든 동일하게 동작).
+init_db()
+load_settings_cache()
+
+# gunicorn을 여러 워커(-w 2 이상)로 띄우면 워커마다 이 스케줄러 스레드가 각각 떠서 시세가
+# 중복으로 갱신돼요. 이 앱은 SQLite를 쓰기 때문에 애초에 워커를 1개(-w 1 --threads N)로
+# 띄우는 걸 권장하고, 정말 워커를 늘려야 한다면 AIRMRKT_ENABLE_SCHEDULER=0으로 나머지
+# 워커의 스케줄러를 꺼서 딱 한 곳에서만 돌게 하세요.
+if os.environ.get('AIRMRKT_ENABLE_SCHEDULER', '1') == '1':
     threading.Thread(target=scheduler_loop, daemon=True).start()
+
+if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
