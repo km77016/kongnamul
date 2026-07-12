@@ -804,12 +804,48 @@ PLUS_DISCOUNT = 0.002       # 플러스 회원 추가 스프레드 할인폭 (�
 PLUS_FEE_DISCOUNT_RATIO = 0.5  # 플러스 회원의 배송비/인증서/빠른처리 수수료는 "전액 무료"가 아니라 50% 할인
 PLUS_PERIOD_DAYS = 30
 
+def _settle_plus_expiry(c, uid, email=None):
+    """구독이 만료된 유저 한 명을 처리해요: 자동갱신 켜져있고 잔액 충분하면 갱신,
+    아니면 즉시 비활성화해요. do_tick의 일괄처리와 get_plus_status의 즉시처리가 공유하는 로직이라
+    "결제 실패 시 다음 정기점검까지 기다리지 않고 바로 해지"가 보장돼요."""
+    now_dt = datetime.now(timezone.utc)
+    plus_fee = get_setting('plus_monthly_fee')
+    row = c.execute('SELECT plus_auto_renew FROM users WHERE id=?', (uid,)).fetchone()
+    if row and row['plus_auto_renew']:
+        wrow = c.execute('SELECT balance FROM wallet WHERE user_id=?', (uid,)).fetchone()
+        if wrow and wrow['balance'] >= plus_fee:
+            c.execute('UPDATE wallet SET balance=balance-? WHERE user_id=?', (plus_fee, uid))
+            new_expiry = now_dt + timedelta(days=PLUS_PERIOD_DAYS)
+            c.execute('UPDATE users SET plus_expires_at=?, plus_last_charged_at=? WHERE id=?',
+                       (new_expiry.isoformat(), now_iso(), uid))
+            c.execute('INSERT INTO revenue_events(type,amount,user_id,ts) VALUES (?,?,?,?)',
+                       ('plus_subscription', plus_fee, uid, now_iso()))
+            push_notification(uid, 'plus_renewed', f'콩나물 플러스가 자동 갱신됐어요 ({int(plus_fee):,}원 차감)', {'wallet_changed': True})
+            return True  # 갱신됨
+    # 자동갱신 꺼져있거나 잔액 부족 -> 결제 실패로 간주하고 즉시 해지해요
+    c.execute('UPDATE users SET plus_active=0 WHERE id=?', (uid,))
+    push_notification(uid, 'plus_expired', '결제가 안 돼서 콩나물 플러스가 해지됐어요. 계속 이용하려면 다시 구독해주세요.')
+    if email:
+        send_email(email, '[콩나물] 플러스 구독이 해지됐어요',
+                    '자동갱신 결제에 실패해서(자동갱신이 꺼져있거나 잔액 부족) 콩나물 플러스가 바로 해지됐어요. '
+                    '다시 구독하시려면 사이트에서 구독하기를 눌러주세요.')
+    return False  # 해지됨
+
+
 def get_plus_status(uid):
     conn = get_db()
-    row = conn.execute('SELECT plus_active, plus_expires_at, plus_auto_renew, plus_last_charged_at FROM users WHERE id=?', (uid,)).fetchone()
-    conn.close()
+    c = conn.cursor()
+    row = c.execute('SELECT plus_active, plus_expires_at, plus_auto_renew, plus_last_charged_at FROM users WHERE id=?', (uid,)).fetchone()
     if not row:
+        conn.close()
         return {'active': False, 'expires_at': None, 'auto_renew': True, 'refund_eligible': False}
+    if row['plus_active'] and row['plus_expires_at'] and datetime.fromisoformat(row['plus_expires_at']) <= datetime.now(timezone.utc):
+        # 만료 시점이 지났는데 아직 처리가 안 된 상태예요. do_tick의 다음 실행을 기다리지 않고
+        # 지금 이 조회 시점에 바로 갱신 시도(또는 해지) 처리해요 - "결제 실패 시 바로 해지"의 핵심이에요.
+        _settle_plus_expiry(c, uid)
+        conn.commit()
+        row = c.execute('SELECT plus_active, plus_expires_at, plus_auto_renew, plus_last_charged_at FROM users WHERE id=?', (uid,)).fetchone()
+    conn.close()
     active = bool(row['plus_active']) and bool(row['plus_expires_at']) and \
              datetime.fromisoformat(row['plus_expires_at']) > datetime.now(timezone.utc)
     refund_eligible = False
@@ -925,26 +961,12 @@ def do_tick():
             c.execute('UPDATE portfolio SET risk_notified=? WHERE id=?', (level, item['id']))
             push_admin_notification('at_risk', f'매각위기: {item["email"]}님의 {item["model_key"]} {item["grade"]}급 (보관료 {int(ratio*100)}%)')
 
-    # 콩나물 플러스 자동갱신/만료 처리
+    # 콩나물 플러스 자동갱신/만료 처리 (get_plus_status가 즉시 처리 못한 - 즉, 사이트에 안 들어온 - 유저용 안전망)
     now_dt = datetime.now(timezone.utc)
-    plus_fee = get_setting('plus_monthly_fee')
-    for u in c.execute('SELECT id, email, plus_expires_at, plus_auto_renew FROM users WHERE plus_active=1').fetchall():
+    for u in c.execute('SELECT id, email, plus_expires_at FROM users WHERE plus_active=1').fetchall():
         if not u['plus_expires_at'] or datetime.fromisoformat(u['plus_expires_at']) > now_dt:
             continue  # 아직 만료 안 됨
-        if u['plus_auto_renew']:
-            wrow = c.execute('SELECT balance FROM wallet WHERE user_id=?', (u['id'],)).fetchone()
-            if wrow and wrow['balance'] >= plus_fee:
-                c.execute('UPDATE wallet SET balance=balance-? WHERE user_id=?', (plus_fee, u['id']))
-                new_expiry = now_dt + timedelta(days=PLUS_PERIOD_DAYS)
-                c.execute('UPDATE users SET plus_expires_at=?, plus_last_charged_at=? WHERE id=?', (new_expiry.isoformat(), now_iso(), u['id']))
-                c.execute('INSERT INTO revenue_events(type,amount,user_id,ts) VALUES (?,?,?,?)',
-                           ('plus_subscription', plus_fee, u['id'], now_iso()))
-                push_notification(u['id'], 'plus_renewed', f'콩나물 플러스가 자동 갱신됐어요 ({int(plus_fee):,}원 차감)', {'wallet_changed': True})
-                continue
-        # 자동갱신 꺼져있거나 잔액 부족 -> 만료 처리
-        c.execute('UPDATE users SET plus_active=0 WHERE id=?', (u['id'],))
-        push_notification(u['id'], 'plus_expired', '콩나물 플러스 구독이 만료됐어요. 계속 이용하려면 다시 구독해주세요.')
-        send_email(u['email'], '[콩나물] 플러스 구독이 만료됐어요', '자동갱신이 꺼져있거나 잔액이 부족해서 콩나물 플러스가 만료됐어요. 다시 구독하시려면 사이트에서 구독하기를 눌러주세요.')
+        _settle_plus_expiry(c, u['id'], u['email'])
 
     # 매주 일요일(한국시간) 출금 일괄정산 리마인더 - 하루에 한 번만 보내요
     global _last_settlement_reminder_date
@@ -2446,6 +2468,32 @@ def api_admin_adjust_balance(user_id):
                 f'user_id={user_id} amount={amount:+} reason={reason} new_balance={new_balance}')
     push_notification(user_id, 'balance', f'잔액이 {amount:+,.0f}원 조정됐어요.' + (f' ({reason})' if reason else ''), {'wallet_changed': True})
     return jsonify({'ok': True, 'new_balance': new_balance})
+
+
+@app.route('/api/admin/settlement-summary')
+@admin_required
+def api_admin_settlement_summary():
+    conn = get_db()
+    sell_pending = conn.execute(
+        "SELECT COUNT(*) c, COALESCE(SUM(final_price - COALESCE(fast_track_fee,0)),0) s FROM sell_requests WHERE status='inspected'"
+    ).fetchone()
+    withdraw_normal = conn.execute(
+        "SELECT COUNT(*) c, COALESCE(SUM(net_amount),0) s FROM withdrawal_requests WHERE status='pending' AND priority='normal'"
+    ).fetchone()
+    withdraw_instant = conn.execute(
+        "SELECT COUNT(*) c, COALESCE(SUM(net_amount),0) s FROM withdrawal_requests WHERE status='pending' AND priority='instant'"
+    ).fetchone()
+    conn.close()
+    return jsonify({
+        'sell_settlement_pending': {'count': sell_pending['c'], 'total': sell_pending['s']},
+        'withdraw_normal_pending': {'count': withdraw_normal['c'], 'total': withdraw_normal['s']},
+        'withdraw_instant_pending': {'count': withdraw_instant['c'], 'total': withdraw_instant['s']},
+        'withdraw_total_pending': {
+            'count': withdraw_normal['c'] + withdraw_instant['c'],
+            'total': withdraw_normal['s'] + withdraw_instant['s'],
+        },
+        'next_settlement_date': next_settlement_date(),
+    })
 
 
 @app.route('/api/admin/revenue')

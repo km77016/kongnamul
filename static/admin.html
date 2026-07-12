@@ -66,6 +66,13 @@
   .stat-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
   @media(max-width:700px){ .stat-grid{ grid-template-columns:repeat(2,1fr); } }
   .stat-card{ background:var(--bg-input); border:1px solid var(--border); border-radius:12px; padding:14px; transition:transform .15s; }
+  .settle-card{ background:var(--bg-panel); border:1px solid var(--border); border-left:4px solid var(--bean); border-radius:12px;
+    padding:14px 16px; transition:transform .15s, box-shadow .15s; }
+  .settle-card:hover{ transform:translateY(-1px); box-shadow:var(--shadow-sm); }
+  .settle-card.mint{ border-left-color:var(--mint); }
+  .settle-card .l{ font-size:11px; color:var(--ink-muted); font-weight:600; text-transform:uppercase; letter-spacing:.03em; }
+  .settle-card .v{ font-family:var(--font-mono); font-size:22px; font-weight:800; margin:6px 0 4px; }
+  .settle-card .sub{ font-size:11px; color:var(--ink-faint); }
   .stat-card:hover{ transform:translateY(-1px); }
   .stat-card .l{ font-size:11px; color:var(--ink-muted); } .stat-card .v{ font-family:var(--font-mono); font-size:19px; font-weight:800; color:var(--mint); margin-top:6px; }
   .stat-card.neg .v{ color:var(--red); }
@@ -156,6 +163,10 @@
   <div class="wrap">
     <section class="view active" id="view-revenue">
       <div class="pagehead"><h1>수익 현황</h1><p>매입/판매 스프레드와 배송비·보관료 수익을 합산해 보여줘요</p></div>
+      <div class="panel" style="background:var(--bean-tint); border-color:var(--bean-line);">
+        <div class="panel-title">💰 정산 · 출금 한눈에 보기 <button class="btn" onclick="loadSettlementSummary()">새로고침</button></div>
+        <div id="settlementSummaryPanel"></div>
+      </div>
       <div class="panel">
         <div class="panel-title">오늘</div>
         <div class="stat-grid" id="revenueToday"></div>
@@ -413,13 +424,20 @@ async function adminLogout(){
   await checkAdminSession();
 }
 
+function switchView(key){
+  currentView = key;
+  renderNav();
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.getElementById('view-'+key).classList.add('active');
+  loadCurrentView();
+}
 function renderNav(){
   const el = document.getElementById('navBtns'); el.innerHTML='';
   NAV.forEach(n=>{
     const b = document.createElement('button');
     b.className = 'navbtn'+(currentView===n.key?' active':'');
     b.textContent = n.label;
-    b.onclick = ()=>{ currentView=n.key; renderNav(); document.querySelectorAll('.view').forEach(v=>v.classList.remove('active')); document.getElementById('view-'+n.key).classList.add('active'); loadCurrentView(); };
+    b.onclick = ()=> switchView(n.key);
     el.appendChild(b);
   });
 }
@@ -475,6 +493,32 @@ async function loadRevenue(){
   if(!r) return;
   document.getElementById('revenueToday').innerHTML = revenueCards(r.today);
   document.getElementById('revenueAll').innerHTML = revenueCards(r.all_time);
+  loadSettlementSummary();
+}
+async function loadSettlementSummary(){
+  const r = await api('/api/admin/settlement-summary');
+  if(!r) return;
+  const panel = document.getElementById('settlementSummaryPanel');
+  panel.innerHTML = `
+    <div class="stat-grid">
+      <div class="settle-card">
+        <div class="l">📮 매입 정산 대기</div>
+        <div class="v">${won(r.sell_settlement_pending.total)}</div>
+        <div class="sub">${r.sell_settlement_pending.count}건 · 검수완료, 승인 대기중</div>
+        <button class="btn" style="margin-top:10px;" onclick="switchView('sellreq')">매입신청 탭으로</button>
+      </div>
+      <div class="settle-card mint">
+        <div class="l">🏦 이번주 출금 정산</div>
+        <div class="v">${won(r.withdraw_total_pending.total)}</div>
+        <div class="sub">${r.next_settlement_date} · ${r.withdraw_total_pending.count}건 (일반 ${r.withdraw_normal_pending.count} + 즉시 ${r.withdraw_instant_pending.count})</div>
+        <button class="btn mint" style="margin-top:10px;" onclick="switchView('withdrawals')">출금관리 탭으로</button>
+      </div>
+    </div>
+    <div class="empty-state" style="text-align:left; padding:10px 0 0;">
+      💡 "매입 정산 대기"는 매입신청 탭에서 검수완료된 건을 승인하면 유저 잔액으로 들어가요(내부 지급).
+      "이번주 출금 정산"은 실제로 은행에서 계좌이체로 내보내야 하는 금액이에요 — 은행 대량이체로
+      미리 보내신 뒤 "출금관리" 탭에서 일괄 정산 처리하세요.
+    </div>`;
 }
 
 // ---------------- 주문내역 ----------------
