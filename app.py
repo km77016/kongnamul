@@ -403,6 +403,9 @@ def init_db(force=False):
     except sqlite3.OperationalError:
         pass
     c.execute("INSERT OR IGNORE INTO business_info(key,value) VALUES ('admin_notify_emails','')")
+    # 기존에 이미 만들어진 DB라도, 알림 이메일이 아직 비어있으면 기본 운영 이메일로 채워줘요
+    # (관리자가 대시보드에서 이미 다른 값으로 바꿔뒀다면 건드리지 않아요)
+    c.execute("UPDATE business_info SET value='mint.team2026@gmail.com' WHERE key='admin_notify_emails' AND value=''")
     if fresh:
         for k, m in MODEL_DEFAULTS.items():
             c.execute('''INSERT INTO models(key,code,name,ratio_s,ratio_a,ratio_b,ratio_c,mid,floor_p,ceil_p,
@@ -960,6 +963,10 @@ def do_tick():
             send_email(item['email'], subject, body)
             c.execute('UPDATE portfolio SET risk_notified=? WHERE id=?', (level, item['id']))
             push_admin_notification('at_risk', f'매각위기: {item["email"]}님의 {item["model_key"]} {item["grade"]}급 (보관료 {int(ratio*100)}%)')
+            notify_admin_emails('[콩나물] 매각위기 아이템 발생',
+                f'{item["email"]}님의 {item["model_key"]} {item["grade"]}급 보관 아이템이 위험 상태예요.\n'
+                f'보관료 {int(fee):,}원 / 매도가 {int(value):,}원 ({int(ratio*100)}%)\n'
+                f'관리자 대시보드 "매각위기" 탭에서 확인해주세요.')
 
     # 콩나물 플러스 자동갱신/만료 처리 (get_plus_status가 즉시 처리 못한 - 즉, 사이트에 안 들어온 - 유저용 안전망)
     now_dt = datetime.now(timezone.utc)
@@ -1437,6 +1444,7 @@ def api_trade():
         remaining = c.execute('SELECT qty FROM stock WHERE model_key=? AND grade=?', (model_key, grade)).fetchone()
         if remaining and remaining['qty'] == 0:
             push_admin_notification('out_of_stock', f'품절: {model_key} {grade}급 재고가 0개가 됐어요')
+            notify_admin_emails('[콩나물] 품절 발생', f'{model_key} {grade}급 재고가 0개가 됐어요. 재고관리 탭에서 채워주세요.')
         c.execute('UPDATE wallet SET balance=balance-? WHERE user_id=? AND balance>=?', (total, uid, total))
         if c.rowcount == 0:
             # 잔액 재확인 실패 시 방금 차감한 재고를 되돌려요 (동시 요청으로 인한 드문 경합 대비)
@@ -1454,7 +1462,13 @@ def api_trade():
         if delivery_fee > 0:
             c.execute('INSERT INTO revenue_events(type,amount,user_id,ts) VALUES (?,?,?,?)',
                        ('delivery_fee', delivery_fee, uid, ts))
+        buyer = c.execute('SELECT email FROM users WHERE id=?', (uid,)).fetchone()
         conn.commit(); conn.close()
+        push_admin_notification('new_purchase', f'🛒 새 구매: {model_key} {grade}급 · {int(total):,}원 ({buyer["email"] if buyer else ""})')
+        notify_admin_emails('[콩나물] 새 구매가 있었어요',
+            f'{buyer["email"] if buyer else "알 수 없음"}님이 {model_key} {grade}급을 구매했어요.\n'
+            f'결제금액: {int(total):,}원 (상품 {int(price):,}원 + 배송비 {int(delivery_fee):,}원)\n'
+            f'수령방법: {"보관함 보관" if delivery=="storage" else "배송"}')
         return jsonify({'ok': True, 'price': price, 'delivery_fee': delivery_fee, 'total': total, 'delivery': delivery})
     conn.close()
     return jsonify({'error': 'invalid action'}), 400
@@ -1594,6 +1608,8 @@ def api_deposit_request():
               (uid, amount, ref, acc['id'], 'pending', now_iso()))
     conn.commit(); conn.close()
     push_admin_notification('new_deposit', f'새 충전요청: {int(amount):,}원 (참조코드 {ref})')
+    notify_admin_emails('[콩나물] 새 충전요청이 들어왔어요',
+        f'참조코드 {ref}로 {int(amount):,}원 충전요청이 들어왔어요.\n입금 확인 후 "입금확인" 탭에서 승인해주세요.')
     return jsonify({
         'ok': True, 'reference_code': ref, 'amount': amount,
         'bank': {'bank_name': acc['bank_name'], 'account_number': acc['account_number'], 'holder_name': acc['holder_name']},
@@ -1981,6 +1997,9 @@ def api_sell_request():
     conn.commit(); conn.close()
     write_audit('user', str(uid), 'sell_request_submit', f'id={req_id} model={model_key} grade={grade} fast_track={fast_track}')
     push_admin_notification('new_sellreq', f'{"🚀 빠른처리 " if fast_track else ""}새 매입신청: {model_key} {grade}급 (예상가 {int(estimated):,}원)')
+    notify_admin_emails('[콩나물] 새 매입신청이 들어왔어요',
+        f'{"🚀 빠른처리 신청이에요.\n" if fast_track else ""}{model_key} {grade}급, 예상가 {int(estimated):,}원.\n'
+        f'"매입신청" 탭에서 확인해주세요.')
     return jsonify({'ok': True, 'id': req_id, 'estimated_price': estimated, 'fast_track_fee': ft_fee, 'shipping_address': INSPECTION_ADDRESS})
 
 
