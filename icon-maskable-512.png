@@ -112,6 +112,15 @@
     font-size:11.5px; font-weight:700; cursor:pointer; }
   .pwa-install-banner .btn-dismiss{ background:none; border:none; color:var(--mint-deep); font-size:14px; cursor:pointer; padding:4px; opacity:.6; }
   .pwa-install-banner .btn-dismiss:hover{ opacity:1; }
+  .kakao-fab{ position:fixed; right:18px; bottom:24px; z-index:40; display:flex; align-items:center; gap:7px;
+    background:#FEE500; color:#3C1E1E; text-decoration:none; padding:12px 16px; border-radius:26px;
+    font-size:13px; font-weight:700; box-shadow:0 6px 20px rgba(33,43,30,0.18); transition:transform .15s, box-shadow .15s; }
+  .kakao-fab:hover{ transform:translateY(-2px); box-shadow:0 10px 26px rgba(33,43,30,0.22); }
+  .kakao-fab .ic{ font-size:16px; }
+  @media(max-width:680px){
+    .kakao-fab{ bottom:calc(90px + env(safe-area-inset-bottom, 0px)); right:14px; padding:11px 14px; }
+    .kakao-fab .txt{ display:none; }
+  }
   .reset-btn{ font-family:var(--font-body); font-weight:600; font-size:12px; color:var(--ink-muted); background:var(--bg-panel);
     border:1px solid var(--border); padding:7px 12px; border-radius:20px; cursor:pointer; }
   .wrap{ max-width:1080px; margin:0 auto; padding:20px 16px 0; }
@@ -276,6 +285,10 @@
   <button class="btn-dismiss" onclick="dismissInstallBanner()">✕</button>
 </div>
 
+<a id="kakaoSupportBtn" class="kakao-fab" style="display:none;" target="_blank" rel="noopener">
+  <span class="ic">💬</span><span class="txt">고객센터</span>
+</a>
+
 <div id="authOverlay" class="auth-overlay" style="display:none;">
   <div class="auth-card">
     <div class="auth-card-mark">
@@ -292,7 +305,9 @@
     </div>
 
     <div id="authSignupForm">
-      <div class="field-label">이메일</div>
+      <div class="field-label">이름</div>
+      <input class="auth-input" id="suName" placeholder="홍길동">
+      <div class="field-label" style="margin-top:10px;">이메일</div>
       <input class="auth-input" id="suEmail" type="email" placeholder="you@example.com">
       <button class="mini-btn" style="margin:8px 0;" onclick="sendCode()">인증코드 받기</button>
       <div class="auth-note" id="codeSentNote"></div>
@@ -677,21 +692,140 @@
     <div class="panel">
       <div class="note" style="font-size:12.5px; line-height:1.8;">
         <b style="color:var(--ink); font-size:13px;">⚠️ 안내</b><br>
-        아래는 전자상거래 서비스에서 흔히 쓰는 조항을 정리한 <b>템플릿</b>이에요. 실제 서비스 운영 전에는
-        반드시 변호사 등 법률 전문가의 검토를 받으세요. 이 내용은 법률 자문이 아니에요.<br><br>
+        아래는 전자상거래·통신판매 서비스에서 흔히 쓰는 조항을 지금 서비스의 실제 기능(매입·구매,
+        보관, 콩나물 플러스, 정품 인증서, 선물하기, 출금 등)에 맞춰 정리한 <b>임시 템플릿</b>이에요.
+        실제 서비스 운영 전에는 반드시 변호사 등 법률 전문가의 검토를 받으세요. 이 내용은 법률
+        자문이 아니고, 특히 선불 충전금(잔액) 관련 조항은 전자금융거래법상 선불전자지급수단
+        해당 여부에 따라 크게 달라질 수 있어 별도 자문이 꼭 필요해요.<br><br>
+
         <b style="color:var(--ink);">제1조 (목적)</b><br>
-        이 약관은 콩나물(이하 "회사")이 운영하는 서비스를 이용함에 있어 회사와 회원 간의 권리·의무 및 책임사항을 규정함을 목적으로 합니다.<br><br>
-        <b style="color:var(--ink);">제2조 (회원가입 및 계정)</b><br>
-        회원은 이메일 인증을 완료해야 가입할 수 있으며, 타인의 정보를 도용하거나 허위 정보를 등록해서는 안 됩니다.<br><br>
-        <b style="color:var(--ink);">제3조 (매입·판매 거래)</b><br>
-        회사는 검수를 거친 상품에 대해 자체 기준으로 등급을 산정하며, 최종 매입가는 검수 결과에 따라 신청 시 예상가와 달라질 수 있습니다. 구매한 상품의 보관에는 회사가 정한 보관료 정책이 적용됩니다.<br><br>
-        <b style="color:var(--ink);">제4조 (결제 및 환불)</b><br>
-        계좌이체 또는 카드/간편결제로 잔액을 충전할 수 있으며, 충전된 잔액의 환불은 회사의 환불 정책에 따릅니다.<br><br>
-        <b style="color:var(--ink);">제5조 (회사의 의무)</b><br>
-        회사는 관련 법령과 이 약관이 정하는 바에 따라 지속적이고 안정적으로 서비스를 제공하기 위해 노력합니다.<br><br>
-        <b style="color:var(--ink);">제6조 (면책)</b><br>
-        천재지변 등 불가항력으로 인한 서비스 중단에 대해 회사는 책임을 지지 않습니다.<br><br>
-        <span style="color:var(--ink-faint);">시행일: 2026년 7월 1일 (예시)</span>
+        이 약관은 콩나물(이하 "회사")이 운영하는 온라인 플랫폼(이하 "서비스")에서 제공하는 중고
+        에어팟 등 전자제품의 매입·판매 중개, 보관, 결제, 부가서비스 이용과 관련하여 회사와 회원
+        간의 권리·의무 및 책임사항, 절차를 규정함을 목적으로 합니다.<br><br>
+
+        <b style="color:var(--ink);">제2조 (용어의 정의)</b><br>
+        ① "회원"이란 이 약관에 동의하고 이메일 인증을 거쳐 회사와 이용계약을 체결한 자를 말합니다.<br>
+        ② "잔액"이란 회원이 계좌이체·카드결제 등으로 충전하거나 매입 정산으로 적립받아, 서비스
+        내 구매·구독 등에 사용할 수 있는 금액을 말합니다.<br>
+        ③ "매입신청"이란 회원이 보유한 상품을 회사에 판매하기 위해 신청하는 절차를, "검수"란
+        회사가 수령한 실물의 상태·정품 여부를 확인하여 최종 등급과 매입가를 확정하는 절차를
+        말합니다.<br>
+        ④ "보관함"이란 회원이 구매하거나 매입 정산으로 취득한 상품을 배송받지 않고 회사가 대신
+        보관하도록 지정하는 서비스를 말합니다.<br>
+        ⑤ "콩나물 플러스"란 월 구독료를 지불한 회원에게 보관료 면제, 수수료 할인 등의 혜택을
+        제공하는 유료 구독 서비스를 말합니다.<br><br>
+
+        <b style="color:var(--ink);">제3조 (약관의 효력 및 변경)</b><br>
+        ① 이 약관은 서비스 화면에 게시하거나 기타의 방법으로 회원에게 공지함으로써 효력이
+        발생합니다.<br>
+        ② 회사는 관련 법령을 위배하지 않는 범위에서 이 약관을 개정할 수 있으며, 개정 시 적용일자
+        및 개정사유를 명시하여 적용일 최소 7일 전(회원에게 불리한 변경은 30일 전)부터 공지합니다.<br>
+        ③ 회원이 개정약관 시행일까지 명시적으로 거부 의사를 표시하지 않으면 개정약관에 동의한
+        것으로 봅니다.<br><br>
+
+        <b style="color:var(--ink);">제4조 (회원가입 및 계정)</b><br>
+        ① 회원가입은 이메일 인증, 이름·비밀번호 입력, 이용약관 및 개인정보처리방침 동의 절차를
+        모두 거쳐야 완료됩니다.<br>
+        ② 회원은 타인의 명의나 정보를 도용하거나 허위 정보를 등록해서는 안 되며, 이로 인해
+        발생하는 불이익은 회원 본인이 부담합니다.<br>
+        ③ 계정 및 비밀번호(결제 비밀번호 포함) 관리 책임은 회원에게 있으며, 제3자에게 이를
+        양도·대여할 수 없습니다.<br>
+        ④ 회사는 부정 이용 방지를 위해 휴대폰 본인인증을 요청할 수 있습니다.<br><br>
+
+        <b style="color:var(--ink);">제5조 (구매 서비스)</b><br>
+        ① 회원은 회사가 검수를 완료하여 등록한 재고 상품을 잔액으로 구매할 수 있습니다.<br>
+        ② 구매한 상품은 즉시 배송을 신청하거나, 보관함에 보관을 요청할 수 있습니다. 보관에는
+        제7조의 보관료 정책이 적용됩니다.<br>
+        ③ 회원은 구매 시 받는 사람 이메일을 지정하여 상품을 타인에게 선물할 수 있으며, 이 경우
+        별도의 선물 서비스료가 부과됩니다. 상대방이 미가입 상태라면 해당 이메일로 가입하는 시점에
+        자동으로 전달됩니다.<br><br>
+
+        <b style="color:var(--ink);">제6조 (매입·판매 거래 및 검수)</b><br>
+        ① 회원이 매입신청 시 선택한 등급은 자가진단 등급이며, 신청 시 안내되는 예상가는 확정
+        금액이 아닙니다.<br>
+        ② 회원은 안내된 주소로 실물을 발송해야 하며, 회사가 실물을 수령하고 검수를 완료한 뒤
+        확정하는 최종 등급 및 매입가가 실제 정산 기준이 됩니다. 검수 결과 신청 등급과 다르게
+        판정될 수 있고 이 경우 정산액이 예상가와 달라질 수 있습니다.<br>
+        ③ 정산 확정 이후 대금은 회원의 잔액으로 지급됩니다.<br>
+        ④ 회원은 회사가 실물을 수령하기 전까지 매입신청을 취소할 수 있습니다. 실물 발송 후
+        취소·반품에 관한 사항은 회사가 별도로 안내하는 절차에 따릅니다.<br>
+        ⑤ 회원이 "빠른처리"를 선택한 경우 별도의 우선처리 수수료가 정산액에서 차감됩니다.<br><br>
+
+        <b style="color:var(--ink);">제7조 (보관 서비스 및 보관료)</b><br>
+        ① 보관함에 보관된 상품은 회사가 정한 무료 보관 기간이 지나면 보관료가 부과됩니다. 보관료
+        는 서비스 내 안내되는 요율에 따라 산정됩니다.<br>
+        ② 보관료가 해당 상품의 매도 가치에 근접하거나 초과할 경우, 회사는 회원에게 사전 알림(이메일
+        및 서비스 내 알림)을 거쳐 상품을 강제로 매각하고 보관료를 공제한 잔여 대금을 회원의 잔액
+        으로 지급할 수 있습니다.<br>
+        ③ 콩나물 플러스 회원은 보관료가 면제됩니다.<br><br>
+
+        <b style="color:var(--ink);">제8조 (잔액의 충전·이용)</b><br>
+        ① 회원은 계좌이체 또는 회사가 지원을 활성화한 경우 카드·간편결제로 잔액을 충전할 수
+        있습니다. 계좌이체 충전은 회사의 입금 확인 절차를 거쳐 반영됩니다.<br>
+        ② 잔액은 서비스 내 구매, 콩나물 플러스 구독, 정품 인증서 발급, 선물하기 등 회사가 정한
+        용도로만 사용할 수 있습니다.<br>
+        ③ 잔액의 법적 성격, 유효기간, 환급 기준 등은 관련 법령(전자금융거래법 등)의 적용을
+        받을 수 있으며, 회사는 관계 법령에 따라 필요한 조치(등록, 약관 정비 등)를 이행합니다.<br><br>
+
+        <b style="color:var(--ink);">제9조 (출금)</b><br>
+        ① 회원은 보유한 잔액을 본인 명의 계좌로 출금 신청할 수 있습니다.<br>
+        ② 일반출금은 수수료가 없으며, 신청 시점과 무관하게 회사가 정한 주기(원칙적으로 매주
+        특정 요일)에 일괄 정산되어 지급됩니다.<br>
+        ③ 회사가 즉시출금 기능을 활성화한 경우, 회원은 수수료를 부담하고 우선 처리를 요청할 수
+        있습니다.<br>
+        ④ 회사는 부정 이용이 의심되는 경우 출금을 보류하고 소명을 요청할 수 있습니다.<br><br>
+
+        <b style="color:var(--ink);">제10조 (콩나물 플러스 구독)</b><br>
+        ① 콩나물 플러스는 월 단위 유료 구독 서비스로, 결제 시점부터 30일간 유효합니다.<br>
+        ② 자동갱신이 켜져 있으면 만료 시점에 잔액에서 자동으로 구독료가 재결제됩니다. 잔액 부족
+        또는 자동갱신 해제 시 구독은 즉시 만료 처리되며 혜택이 중단됩니다.<br>
+        ③ 최초 결제 또는 갱신 결제 후 24시간 이내에는 회원이 직접 구독을 취소하고 전액 환불받을
+        수 있습니다. 24시간이 지난 뒤에는 자동갱신을 해제하여 다음 결제부터 중단할 수 있습니다.<br><br>
+
+        <b style="color:var(--ink);">제11조 (정품 인증서)</b><br>
+        ① 회원은 본인이 실제로 구매 완료한 상품에 한해 정품 검수 인증서를 발급받을 수 있으며,
+        발급 시 수수료가 부과됩니다(콩나물 플러스 회원은 할인).<br>
+        ② 발급된 인증서는 고유 코드를 가지며, 이 코드는 회사 웹사이트에서 누구나 조회하여 진위를
+        확인할 수 있습니다. 최초 발급 이후 재다운로드는 무료입니다.<br><br>
+
+        <b style="color:var(--ink);">제12조 (청약철회 및 환불)</b><br>
+        ① 회원은 「전자상거래 등에서의 소비자보호에 관한 법률」이 정하는 바에 따라 구매 확정일로부터
+        7일 이내에 청약철회를 요청할 수 있습니다. 다만 회원의 사용·훼손 등으로 상품 가치가 현저히
+        감소한 경우, 시간 경과로 재판매가 곤란할 정도로 가치가 현저히 감소한 경우 등 법령이 정하는
+        예외 사유에 해당하는 경우 청약철회가 제한될 수 있습니다.<br>
+        ② 청약철회가 인정되는 경우, 회사는 상품을 회수한 후 확인을 거쳐 결제대금을 환불합니다.<br>
+        ③ 잔액 충전 후 미사용 금액의 환불 절차 및 수수료는 회사가 별도로 정하는 정책 및 관계
+        법령에 따릅니다.<br>
+        ④ 회사의 귀책사유(정보 오류 등)로 인한 청약철회의 경우 회원은 반품 비용을 부담하지
+        않습니다.<br><br>
+
+        <b style="color:var(--ink);">제13조 (회원의 의무 및 서비스 이용 제한)</b><br>
+        ① 회원은 관계 법령, 이 약관, 이용안내 및 서비스와 관련하여 공지한 주의사항을 준수해야
+        합니다.<br>
+        ② 회사는 회원이 타인의 정보를 도용하거나, 장물 등 불법적으로 취득한 물품을 매입신청하거나,
+        시스템에 부정하게 접근하는 등 이 약관을 위반한 경우 사전 통지 후(긴급한 경우 사후 통지)
+        경고, 일시정지, 이용계약 해지 등의 조치를 취할 수 있습니다.<br><br>
+
+        <b style="color:var(--ink);">제14조 (회사의 의무)</b><br>
+        회사는 관련 법령과 이 약관이 정하는 바에 따라 지속적이고 안정적으로 서비스를 제공하기
+        위해 노력하며, 회원의 개인정보 보호를 위한 보안 시스템을 갖춥니다.<br><br>
+
+        <b style="color:var(--ink);">제15조 (지적재산권)</b><br>
+        서비스 내 콘텐츠, 상표, 로고에 대한 저작권 및 지적재산권은 회사에 귀속되며, 회원은
+        회사의 사전 동의 없이 이를 복제·배포·상업적으로 이용할 수 없습니다.<br><br>
+
+        <b style="color:var(--ink);">제16조 (면책)</b><br>
+        ① 회사는 천재지변, 통신장애 등 불가항력으로 인한 서비스 중단에 대해 책임을 지지 않습니다.<br>
+        ② 회사는 회원의 귀책사유로 인한 손해에 대해 책임을 지지 않습니다.<br>
+        ③ 회사는 회원 간 또는 회원과 제3자 간에 서비스를 매개로 발생한 분쟁에 개입할 의무가 없으며,
+        이로 인한 손해를 배상할 책임이 없습니다.<br><br>
+
+        <b style="color:var(--ink);">제17조 (분쟁해결 및 준거법)</b><br>
+        ① 이 약관은 대한민국 법령에 따라 규율되고 해석됩니다.<br>
+        ② 서비스 이용과 관련하여 회사와 회원 간에 발생한 분쟁에 대해서는 민사소송법상의 관할법원에
+        소를 제기할 수 있습니다.<br><br>
+
+        <span style="color:var(--ink-faint);">시행일: 2026년 7월 1일 (예시 — 실제 시행일로 교체하세요)</span>
       </div>
     </div>
   </section>
@@ -701,18 +835,88 @@
     <div class="panel">
       <div class="note" style="font-size:12.5px; line-height:1.8;">
         <b style="color:var(--ink); font-size:13px;">⚠️ 안내</b><br>
-        아래는 <b>템플릿</b>이에요. 실제 수집 항목·이용 목적·보관 기간은 서비스 실제 구현에 맞춰 반드시 다시 작성하고, 개인정보보호위원회 표준지침 및 법률 검토를 거쳐야 해요.<br><br>
+        아래는 지금 서비스가 실제로 수집·이용하는 항목(휴대폰 인증, 결제 비밀번호, 계좌정보, 선물
+        수신자 이메일 등)을 반영한 <b>임시 템플릿</b>이에요. 실제 운영 전에는 개인정보보호위원회
+        표준지침 및 변호사 검토를 반드시 거쳐야 하고, 특히 보유기간·위탁업체 명단은 실제 계약
+        현황에 맞게 정확히 채워야 해요.<br><br>
+
         <b style="color:var(--ink);">1. 수집하는 개인정보 항목</b><br>
-        이메일, 비밀번호(암호화 저장), 결제 비밀번호(암호화 저장), 계좌이체 시 입금자명, 거래 내역<br><br>
-        <b style="color:var(--ink);">2. 개인정보의 수집 및 이용 목적</b><br>
-        회원 가입 및 관리, 거래(매입·판매) 처리, 잔액 충전 확인, 부정 이용 방지, 공지사항 전달<br><br>
-        <b style="color:var(--ink);">3. 개인정보의 보유 및 이용 기간</b><br>
-        회원 탈퇴 시까지 보유하며, 관계 법령에 따라 보존이 필요한 거래 기록은 해당 법령이 정한 기간 동안 보관합니다.<br><br>
-        <b style="color:var(--ink);">4. 개인정보의 제3자 제공</b><br>
-        회사는 이용자의 동의 없이 개인정보를 외부에 제공하지 않습니다.<br><br>
-        <b style="color:var(--ink);">5. 이용자의 권리</b><br>
-        이용자는 언제든지 자신의 개인정보 조회·수정·삭제를 요청할 수 있습니다.<br><br>
-        <span style="color:var(--ink-faint);">시행일: 2026년 7월 1일 (예시)</span>
+        · 필수: 이름, 이메일, 비밀번호(암호화 저장)<br>
+        · 선택: 휴대폰 번호(본인인증 시), 결제 비밀번호(PIN, 암호화 저장)<br>
+        · 거래 관련: 계좌이체 시 입금자명·은행명·계좌번호, 출금 신청 시 수취 계좌정보, 매입신청
+        상품정보, 구매·판매·보관·정산 내역, 선물하기 이용 시 받는 사람 이메일<br>
+        · 자동 수집: 접속 로그, 쿠키, 접속 IP, 서비스 이용기록, 기기정보<br>
+        · 마케팅: 마케팅 정보 수신에 동의한 경우에 한해 이메일로 프로모션 정보를 발송할 수 있습니다.<br><br>
+
+        <b style="color:var(--ink);">2. 개인정보의 수집 방법</b><br>
+        회원가입, 서비스 이용 과정에서 회원이 직접 입력, 계좌이체·카드결제 시 결제대행사로부터
+        전달, 서비스 이용 중 자동 생성정보 수집.<br><br>
+
+        <b style="color:var(--ink);">3. 개인정보의 처리 목적</b><br>
+        · 회원 가입 의사 확인, 본인 식별·인증, 회원자격 유지·관리, 부정이용 방지<br>
+        · 매입·구매·보관·배송·정산 등 거래의 이행 및 관련 고지<br>
+        · 계좌이체 입금 확인, 출금 처리, 콩나물 플러스 구독 결제 및 자동갱신 처리<br>
+        · 정품 인증서 발급 및 진위 확인 대응, 선물하기 기능의 수신자 매칭<br>
+        · 고객 문의·불만 처리, 공지사항 전달, 부정거래 방지 및 약관 위반 대응<br>
+        · (동의 시) 프로모션·이벤트 등 마케팅 정보 제공<br><br>
+
+        <b style="color:var(--ink);">4. 개인정보의 처리 및 보유 기간</b><br>
+        원칙적으로 회원 탈퇴 시 지체 없이 파기합니다. 다만 관계 법령에 따라 보존이 필요한 경우
+        아래와 같이 보관합니다.<br>
+        · 계약 또는 청약철회 등에 관한 기록: 5년 (전자상거래법)<br>
+        · 대금결제 및 재화 등의 공급에 관한 기록: 5년 (전자상거래법)<br>
+        · 소비자 불만 또는 분쟁처리에 관한 기록: 3년 (전자상거래법)<br>
+        · 접속에 관한 기록(로그인 기록 등): 3개월 (통신비밀보호법)<br>
+        · 세법이 정하는 거래 관련 장부·증빙서류: 5년 (국세기본법)<br><br>
+
+        <b style="color:var(--ink);">5. 개인정보의 제3자 제공</b><br>
+        회사는 이용자의 동의 없이 개인정보를 외부에 제공하지 않습니다. 다만 법령에 특별한 규정이
+        있거나 수사기관이 적법한 절차에 따라 요청하는 경우는 예외로 합니다.<br><br>
+
+        <b style="color:var(--ink);">6. 개인정보 처리의 위탁</b><br>
+        회사는 서비스 제공을 위해 아래와 같이 업무를 위탁할 수 있으며, 위탁계약 시 개인정보가
+        안전하게 관리되도록 필요한 사항을 규정합니다.<br>
+        · 이메일 발송: 이메일 발송 서비스 제공업체<br>
+        · 카드·간편결제 대행: 결제대행(PG)사<br>
+        · 문자(SMS) 발송(연동 시): SMS 발송대행업체<br>
+        (실제 계약된 업체명으로 교체해서 명시해야 해요)<br><br>
+
+        <b style="color:var(--ink);">7. 정보주체의 권리·의무 및 행사방법</b><br>
+        이용자는 언제든지 자신의 개인정보를 조회·수정할 수 있으며, 가입 해지(회원탈퇴)를 통해
+        수집·이용 동의를 철회할 수 있습니다. 마케팅 정보 수신 동의는 별도로 언제든 철회할 수
+        있습니다. 권리 행사는 서비스 내 설정 화면 또는 고객센터를 통해 요청할 수 있습니다.<br><br>
+
+        <b style="color:var(--ink);">8. 개인정보의 파기</b><br>
+        보유기간이 경과하거나 처리 목적이 달성된 개인정보는 지체 없이 파기합니다. 전자적 파일은
+        복구 불가능한 방법으로 삭제하며, 종이 문서는 분쇄 또는 소각합니다.<br><br>
+
+        <b style="color:var(--ink);">9. 개인정보의 안전성 확보조치</b><br>
+        비밀번호 및 결제 비밀번호(PIN)는 암호화하여 저장하며, 관리자 페이지는 별도 인증 및 접근
+        권한 관리를 적용합니다. 회원 간 통신은 암호화 프로토콜(HTTPS 적용을 권장)로 보호됩니다.<br><br>
+
+        <b style="color:var(--ink);">10. 쿠키의 운용</b><br>
+        회사는 이용자에게 맞춤화된 서비스 제공을 위해 로그인 유지 등의 목적으로 쿠키를 사용할 수
+        있습니다. 이용자는 브라우저 설정을 통해 쿠키 저장을 거부할 수 있으며, 이 경우 일부 서비스
+        이용에 제한이 있을 수 있습니다.<br><br>
+
+        <b style="color:var(--ink);">11. 만 14세 미만 아동의 개인정보</b><br>
+        회사는 만 14세 미만 아동의 회원가입을 원칙적으로 제한합니다. 만 14세 미만으로 확인되는
+        경우 회사는 해당 계정의 이용을 제한하고 관련 절차에 따라 처리합니다.<br><br>
+
+        <b style="color:var(--ink);">12. 개인정보 보호책임자</b><br>
+        성명: (지정 후 기재) · 연락처: 사업자정보 페이지의 이메일·전화번호 참고<br>
+        개인정보 관련 문의, 불만처리, 피해구제 등을 위해 개인정보 보호책임자에게 연락하실 수
+        있습니다.<br><br>
+
+        <b style="color:var(--ink);">13. 권익침해 구제방법</b><br>
+        개인정보 침해로 인한 신고나 상담은 개인정보침해신고센터(privacy.kisa.or.kr / 국번없이 118),
+        개인정보분쟁조정위원회(www.kopico.go.kr / 1833-6972) 등에 문의할 수 있습니다.<br><br>
+
+        <b style="color:var(--ink);">14. 고지의 의무</b><br>
+        이 개인정보처리방침의 내용이 추가·삭제·수정되는 경우 시행 최소 7일 전부터 서비스 내
+        공지사항을 통해 고지합니다.<br><br>
+
+        <span style="color:var(--ink-faint);">시행일: 2026년 7월 1일 (예시 — 실제 시행일로 교체하세요)</span>
       </div>
     </div>
   </section>
@@ -931,9 +1135,11 @@ function syncAgreeAll(){
   document.getElementById('agreeAll').checked = ids.every(id=> document.getElementById(id).checked);
 }
 async function doSignup(){
+  const name = document.getElementById('suName').value.trim();
   const email = document.getElementById('suEmail').value.trim();
   const code = document.getElementById('suCode').value.trim();
   const password = document.getElementById('suPassword').value;
+  if(!name){ toast('이름을 입력해주세요'); return; }
   if(!codeSent){ toast('먼저 인증코드를 받아주세요'); return; }
   if(!document.getElementById('agreeTerms').checked || !document.getElementById('agreePrivacy').checked){
     toast('이용약관과 개인정보처리방침에 동의해주세요'); return;
@@ -942,7 +1148,7 @@ async function doSignup(){
   const v = await api('/api/auth/verify-code', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email, code})});
   if(!v) return;
   const r = await api('/api/auth/signup', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({email, password, agree_terms:true, agree_privacy:true, agree_marketing:marketing})});
+    body: JSON.stringify({name, email, password, agree_terms:true, agree_privacy:true, agree_marketing:marketing})});
   if(r){ toast('회원가입 완료! 자동으로 로그인됐어요'); closeAuth(); await refresh(); }
 }
 
@@ -1951,6 +2157,15 @@ async function loadBizInfo(){
   const line = document.getElementById('footerBizLine');
   if(line){
     line.textContent = `${bizInfo.company_name||''} · 대표 ${bizInfo.ceo_name||''} · 사업자등록번호 ${bizInfo.biz_reg_no||''} · 통신판매업 ${bizInfo.mail_order_no||''}`;
+  }
+  const kakaoBtn = document.getElementById('kakaoSupportBtn');
+  if(kakaoBtn){
+    if(bizInfo.kakao_channel_url){
+      kakaoBtn.href = bizInfo.kakao_channel_url;
+      kakaoBtn.style.display = 'flex';
+    } else {
+      kakaoBtn.style.display = 'none';
+    }
   }
 }
 function renderBizInfo(){
