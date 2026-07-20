@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <meta name="theme-color" content="#FAFAF5">
+<link rel="icon" href="/icons/favicon-64.png" type="image/png">
 <title>콩나물 관리자</title>
 <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -12,9 +13,9 @@
     --bg:#FBF9F1; --bg-panel:#FFFFFF; --bg-panel-warm:#FFFDF8; --bg-input:#F6F5EC;
     --border:#EAE4D3; --border-soft:#F2EEE1;
     --ink:#212B1E; --ink-muted:#71795F; --ink-faint:#A9AD94;
-    --mint:#0E9E72; --mint-deep:#0A7857; --mint-line:#93DDBC; --mint-tint:#E4F7ED;
+    --mint:#2E9E44; --mint-deep:#217A34; --mint-line:#A8DBAE; --mint-tint:#E7F6E9;
     --lime:#93C23A; --lime-line:#D0E9A0; --lime-tint:#F2F8E0;
-    --bean:#EFB116; --bean-line:#F8DA84; --bean-tint:#FDF2D4; --bean-deep:#9A6B00;
+    --bean:#FFC629; --bean-line:#FFE28A; --bean-tint:#FFF4D6; --bean-deep:#8A6100;
     --red:#E15C71; --red-line:#F5B9C4; --red-tint:#FCE9EC;
     --shadow-xs:0 1px 2px rgba(33,43,30,0.05);
     --shadow-sm:0 3px 12px rgba(33,43,30,0.06);
@@ -105,7 +106,7 @@
   .auth-wrap{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:16px;
     background:
       radial-gradient(600px 340px at 88% -4%, rgba(147,194,58,0.10), transparent 60%),
-      radial-gradient(500px 300px at -2% 10%, rgba(239,177,22,0.09), transparent 55%),
+      radial-gradient(500px 300px at -2% 10%, rgba(255,198,41,0.09), transparent 55%),
       var(--bg); }
   .auth-card{ background:var(--bg-panel); border:1px solid var(--border); border-radius:20px; padding:26px; width:100%; max-width:340px; box-shadow:var(--shadow-lift); }
   .auth-card-mark{ display:flex; justify-content:center; margin-bottom:10px; }
@@ -128,10 +129,10 @@
   <div class="auth-card">
     <div class="auth-card-mark">
       <svg width="30" height="36" viewBox="0 0 20 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M10 23C10 15 6 13 6 8" stroke="#0E9E72" stroke-width="2.2" stroke-linecap="round"/>
+        <path d="M10 23C10 15 6 13 6 8" stroke="#2E9E44" stroke-width="2.2" stroke-linecap="round"/>
         <path d="M10 23C10 16 14 14 14 9" stroke="#93C23A" stroke-width="2" stroke-linecap="round" opacity="0.85"/>
-        <ellipse cx="6" cy="6.5" rx="3.4" ry="2.6" transform="rotate(-25 6 6.5)" fill="#EFB116"/>
-        <ellipse cx="14" cy="7.5" rx="3" ry="2.3" transform="rotate(20 14 7.5)" fill="#EFB116" opacity="0.9"/>
+        <ellipse cx="6" cy="6.5" rx="3.4" ry="2.6" transform="rotate(-25 6 6.5)" fill="#FFC629"/>
+        <ellipse cx="14" cy="7.5" rx="3" ry="2.3" transform="rotate(20 14 7.5)" fill="#FFC629" opacity="0.9"/>
       </svg>
     </div>
     <h1>콩나물 관리자</h1>
@@ -149,10 +150,10 @@
   <div class="topbar">
     <div class="logo"><span style="display:inline-flex;">
       <svg width="18" height="22" viewBox="0 0 20 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M10 23C10 15 6 13 6 8" stroke="#0E9E72" stroke-width="2.2" stroke-linecap="round"/>
+        <path d="M10 23C10 15 6 13 6 8" stroke="#2E9E44" stroke-width="2.2" stroke-linecap="round"/>
         <path d="M10 23C10 16 14 14 14 9" stroke="#93C23A" stroke-width="2" stroke-linecap="round" opacity="0.85"/>
-        <ellipse cx="6" cy="6.5" rx="3.4" ry="2.6" transform="rotate(-25 6 6.5)" fill="#EFB116"/>
-        <ellipse cx="14" cy="7.5" rx="3" ry="2.3" transform="rotate(20 14 7.5)" fill="#EFB116" opacity="0.9"/>
+        <ellipse cx="6" cy="6.5" rx="3.4" ry="2.6" transform="rotate(-25 6 6.5)" fill="#FFC629"/>
+        <ellipse cx="14" cy="7.5" rx="3" ry="2.3" transform="rotate(20 14 7.5)" fill="#FFC629" opacity="0.9"/>
       </svg>
     </span> 콩나물<span class="badge">ADMIN</span></div>
     <div class="nav" id="navBtns"></div>

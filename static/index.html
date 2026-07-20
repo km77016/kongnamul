@@ -3,10 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
-<meta name="theme-color" content="#FAFAF5">
+<meta name="theme-color" content="#FBF9F1">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="콩나물">
+<meta name="description" content="검수완료 에어팟을 안심하고 사고파는 곳, 콩나물">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icons/favicon-64.png" type="image/png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <title>콩나물 — 에어팟 리셀 마켓</title>
 <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -16,13 +20,13 @@
     --bg:#FBF9F1; --bg-panel:#FFFFFF; --bg-panel-warm:#FFFDF8; --bg-input:#F6F5EC;
     --border:#EAE4D3; --border-soft:#F2EEE1;
     --ink:#212B1E; --ink-muted:#71795F; --ink-faint:#A9AD94;
-    --mint:#0E9E72; --mint-deep:#0A7857; --mint-line:#93DDBC; --mint-tint:#E4F7ED;
+    --mint:#2E9E44; --mint-deep:#217A34; --mint-line:#A8DBAE; --mint-tint:#E7F6E9;
     --lime:#93C23A; --lime-line:#D0E9A0; --lime-tint:#F2F8E0;
-    --bean:#EFB116; --bean-line:#F8DA84; --bean-tint:#FDF2D4; --bean-deep:#9A6B00;
+    --bean:#FFC629; --bean-line:#FFE28A; --bean-tint:#FFF4D6; --bean-deep:#8A6100;
     --red:#E15C71; --red-line:#F5B9C4; --red-tint:#FCE9EC;
     --shadow-xs:0 1px 2px rgba(33,43,30,0.05);
     --shadow-sm:0 3px 12px rgba(33,43,30,0.06);
-    --shadow-mint:0 10px 24px -8px rgba(14,158,114,0.35);
+    --shadow-mint:0 10px 24px -8px rgba(46,158,68,0.35);
     --shadow-lift:0 16px 36px -12px rgba(33,43,30,0.18);
     --font-mono:'JetBrains Mono','SF Mono',monospace; --font-body:'Pretendard',-apple-system,sans-serif;
   }
@@ -30,7 +34,7 @@
   ::selection{ background:var(--mint-tint); color:var(--mint-deep); }
   body{ background:
       radial-gradient(680px 380px at 92% -6%, rgba(147,194,58,0.10), transparent 60%),
-      radial-gradient(560px 320px at -4% 8%, rgba(239,177,22,0.09), transparent 55%),
+      radial-gradient(560px 320px at -4% 8%, rgba(255,198,41,0.09), transparent 55%),
       var(--bg);
     color:var(--ink); font-family:var(--font-body); -webkit-font-smoothing:antialiased; padding-bottom:60px; min-height:100vh;}
   .view{ animation:viewIn .32s cubic-bezier(.16,1,.3,1); }
@@ -100,6 +104,14 @@
   .tier-track{ height:6px; border-radius:4px; background:var(--bg-input); overflow:hidden; margin:6px 0; }
   .tier-track .fill{ height:100%; border-radius:4px; transition:width .3s; }
   .tier-pop .sub{ font-size:10.5px; color:var(--ink-muted); line-height:1.5; }
+  .pwa-install-banner{ display:none; align-items:center; gap:10px; position:sticky; top:0; z-index:19;
+    background:var(--mint-tint); border-bottom:1px solid var(--mint-line); padding:9px 16px; font-size:12.5px; }
+  .pwa-install-banner .ic{ font-size:15px; }
+  .pwa-install-banner .txt{ flex:1; color:var(--mint-deep); font-weight:600; }
+  .pwa-install-banner .btn-install{ background:var(--mint); color:#fff; border:none; padding:6px 13px; border-radius:14px;
+    font-size:11.5px; font-weight:700; cursor:pointer; }
+  .pwa-install-banner .btn-dismiss{ background:none; border:none; color:var(--mint-deep); font-size:14px; cursor:pointer; padding:4px; opacity:.6; }
+  .pwa-install-banner .btn-dismiss:hover{ opacity:1; }
   .reset-btn{ font-family:var(--font-body); font-weight:600; font-size:12px; color:var(--ink-muted); background:var(--bg-panel);
     border:1px solid var(--border); padding:7px 12px; border-radius:20px; cursor:pointer; }
   .wrap{ max-width:1080px; margin:0 auto; padding:20px 16px 0; }
@@ -227,6 +239,10 @@
   .auth-input{ width:100%; background:var(--bg-input); border:1px solid var(--border); color:var(--ink); font-family:var(--font-mono); font-size:13.5px; padding:10px 12px; border-radius:10px; outline:none; }
   .auth-input:focus{ border-color:var(--mint); }
   .auth-note{ font-size:11px; color:var(--ink-faint); margin-top:6px; min-height:14px; }
+  .consent-box{ margin-top:14px; padding:10px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:10px; }
+  .consent-row{ display:flex; align-items:center; gap:6px; font-size:12px; color:var(--ink-muted); padding:5px 0; cursor:pointer; }
+  .consent-row a{ margin-left:auto; color:var(--mint-deep); text-decoration:underline; font-size:11px; }
+  .consent-all{ border-bottom:1px solid var(--border); padding-bottom:8px; margin-bottom:4px; font-size:13px; color:var(--ink); }
   .auth-link-btn{ background:transparent; border:none; color:var(--mint); font-size:12px; font-weight:600; cursor:pointer; padding:6px 10px; }
   .user-chip{ display:flex; align-items:center; gap:8px; font-size:12px; color:var(--ink-muted); }
   .numwrap{ display:flex; align-items:center; gap:6px; }
@@ -240,10 +256,10 @@
 <div class="topbar">
   <div class="logo"><span class="sprout">
     <svg width="20" height="24" viewBox="0 0 20 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M10 23C10 15 6 13 6 8" stroke="#0E9E72" stroke-width="2.2" stroke-linecap="round"/>
+      <path d="M10 23C10 15 6 13 6 8" stroke="#2E9E44" stroke-width="2.2" stroke-linecap="round"/>
       <path d="M10 23C10 16 14 14 14 9" stroke="#93C23A" stroke-width="2" stroke-linecap="round" opacity="0.85"/>
-      <ellipse cx="6" cy="6.5" rx="3.4" ry="2.6" transform="rotate(-25 6 6.5)" fill="#EFB116"/>
-      <ellipse cx="14" cy="7.5" rx="3" ry="2.3" transform="rotate(20 14 7.5)" fill="#EFB116" opacity="0.9"/>
+      <ellipse cx="6" cy="6.5" rx="3.4" ry="2.6" transform="rotate(-25 6 6.5)" fill="#FFC629"/>
+      <ellipse cx="14" cy="7.5" rx="3" ry="2.3" transform="rotate(20 14 7.5)" fill="#FFC629" opacity="0.9"/>
     </svg>
   </span>콩나물<span class="live-tag" id="connBadge"><span class="dot"></span>연결중...</span></div>
   <div class="nav" id="navBtns"></div>
@@ -253,14 +269,21 @@
 </div>
 <div class="bottom-nav" id="bottomNavBtns"></div>
 
+<div id="pwaInstallBanner" class="pwa-install-banner">
+  <span class="ic">🌱</span>
+  <span class="txt">콩나물을 홈 화면에 추가하면 앱처럼 바로 열 수 있어요</span>
+  <button class="btn-install" onclick="installPwa()">추가하기</button>
+  <button class="btn-dismiss" onclick="dismissInstallBanner()">✕</button>
+</div>
+
 <div id="authOverlay" class="auth-overlay" style="display:none;">
   <div class="auth-card">
     <div class="auth-card-mark">
       <svg width="28" height="34" viewBox="0 0 20 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M10 23C10 15 6 13 6 8" stroke="#0E9E72" stroke-width="2.2" stroke-linecap="round"/>
+        <path d="M10 23C10 15 6 13 6 8" stroke="#2E9E44" stroke-width="2.2" stroke-linecap="round"/>
         <path d="M10 23C10 16 14 14 14 9" stroke="#93C23A" stroke-width="2" stroke-linecap="round" opacity="0.85"/>
-        <ellipse cx="6" cy="6.5" rx="3.4" ry="2.6" transform="rotate(-25 6 6.5)" fill="#EFB116"/>
-        <ellipse cx="14" cy="7.5" rx="3" ry="2.3" transform="rotate(20 14 7.5)" fill="#EFB116" opacity="0.9"/>
+        <ellipse cx="6" cy="6.5" rx="3.4" ry="2.6" transform="rotate(-25 6 6.5)" fill="#FFC629"/>
+        <ellipse cx="14" cy="7.5" rx="3" ry="2.3" transform="rotate(20 14 7.5)" fill="#FFC629" opacity="0.9"/>
       </svg>
     </div>
     <div class="auth-tabs">
@@ -277,6 +300,24 @@
       <input class="auth-input" id="suCode" maxlength="6" placeholder="000000">
       <div class="field-label" style="margin-top:10px;">비밀번호 (8자 이상)</div>
       <input class="auth-input" id="suPassword" type="password" placeholder="********">
+
+      <div class="consent-box">
+        <label class="consent-row consent-all">
+          <input type="checkbox" id="agreeAll" onchange="toggleAgreeAll()"> <b>전체 동의</b>
+        </label>
+        <label class="consent-row">
+          <input type="checkbox" id="agreeTerms" onchange="syncAgreeAll()"> <span>[필수] 이용약관 동의</span>
+          <a href="/?view=terms" target="_blank" onclick="event.stopPropagation()">보기</a>
+        </label>
+        <label class="consent-row">
+          <input type="checkbox" id="agreePrivacy" onchange="syncAgreeAll()"> <span>[필수] 개인정보처리방침 동의</span>
+          <a href="/?view=privacy" target="_blank" onclick="event.stopPropagation()">보기</a>
+        </label>
+        <label class="consent-row">
+          <input type="checkbox" id="agreeMarketing" onchange="syncAgreeAll()"> <span>[선택] 마케팅 정보 수신 동의</span>
+        </label>
+      </div>
+
       <button class="action-btn mint" style="margin-top:14px;" onclick="doSignup()">가입하기</button>
     </div>
 
@@ -555,7 +596,7 @@
           <tr><td><b style="color:#B08D57;">브론즈</b></td><td>0~9회 (누구나 시작)</td><td>추가 할인 없음</td></tr>
           <tr><td><b style="color:#9AA5B1;">실버</b></td><td>10회 이상</td><td>스프레드 0.3%p 할인</td></tr>
           <tr><td><b style="color:#D4A017;">골드</b></td><td>30회 이상</td><td>스프레드 0.6%p 할인</td></tr>
-          <tr><td><b style="color:#00B287;">플래티넘</b></td><td>60회 이상</td><td>스프레드 1.0%p 할인</td></tr>
+          <tr><td><b style="color:#2E9E44;">플래티넘</b></td><td>60회 이상</td><td>스프레드 1.0%p 할인</td></tr>
         </tbody>
       </table>
       <div class="note">등급은 자동으로 매겨지고 절대 내려가지 않아요 (누적 거래횟수 기준이라). 상단
@@ -818,7 +859,7 @@ const TIER_META = {
   '브론즈': {color:'#B08D57', icon:'🥉', floor:0},
   '실버':   {color:'#8A94A3', icon:'🥈', floor:10},
   '골드':   {color:'#C99A1E', icon:'🥇', floor:30},
-  '플래티넘': {color:'#00B287', icon:'💎', floor:60},
+  '플래티넘': {color:'#2E9E44', icon:'💎', floor:60},
 };
 const TIER_CEIL = {'브론즈':10, '실버':30, '골드':60, '플래티넘':null};
 function renderWallet(){
@@ -881,14 +922,27 @@ async function sendCode(){
   }
 }
 
+function toggleAgreeAll(){
+  const all = document.getElementById('agreeAll').checked;
+  ['agreeTerms','agreePrivacy','agreeMarketing'].forEach(id=> document.getElementById(id).checked = all);
+}
+function syncAgreeAll(){
+  const ids = ['agreeTerms','agreePrivacy','agreeMarketing'];
+  document.getElementById('agreeAll').checked = ids.every(id=> document.getElementById(id).checked);
+}
 async function doSignup(){
   const email = document.getElementById('suEmail').value.trim();
   const code = document.getElementById('suCode').value.trim();
   const password = document.getElementById('suPassword').value;
   if(!codeSent){ toast('먼저 인증코드를 받아주세요'); return; }
+  if(!document.getElementById('agreeTerms').checked || !document.getElementById('agreePrivacy').checked){
+    toast('이용약관과 개인정보처리방침에 동의해주세요'); return;
+  }
+  const marketing = document.getElementById('agreeMarketing').checked;
   const v = await api('/api/auth/verify-code', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email, code})});
   if(!v) return;
-  const r = await api('/api/auth/signup', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email, password})});
+  const r = await api('/api/auth/signup', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({email, password, agree_terms:true, agree_privacy:true, agree_marketing:marketing})});
   if(r){ toast('회원가입 완료! 자동으로 로그인됐어요'); closeAuth(); await refresh(); }
 }
 
@@ -932,7 +986,7 @@ function renderMarketTickers(){
     div.className = 'ticker'+(selectedModel===key?' active':'');
     div.innerHTML = `<div class="ticker-code">${m.code}</div><div class="ticker-name">${m.name}</div>
       <div class="ticker-row"><span class="ticker-price">${won(m.mid)}</span></div>
-      <svg viewBox="0 0 100 20" preserveAspectRatio="none"><polyline points="${miniSparkPath(m.history)}" fill="none" stroke="${selectedModel===key?'#00B287':'#C5DCC5'}" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`;
+      <svg viewBox="0 0 100 20" preserveAspectRatio="none"><polyline points="${miniSparkPath(m.history)}" fill="none" stroke="${selectedModel===key?'#2E9E44':'#C5DCC5'}" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`;
     div.onclick = ()=>{ selectedModel=key; renderAll(); };
     el.appendChild(div);
   });
@@ -942,9 +996,9 @@ function renderChart(){
   const m = STATE.models[selectedModel];
   document.getElementById('chartTitle').textContent = m.name + ' 시세';
   document.getElementById('chartSvg').innerHTML = `
-    <defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#00B287" stop-opacity="0.18"/><stop offset="100%" stop-color="#00B287" stop-opacity="0.01"/></linearGradient></defs>
+    <defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#2E9E44" stop-opacity="0.18"/><stop offset="100%" stop-color="#2E9E44" stop-opacity="0.01"/></linearGradient></defs>
     <path d="${sparkPath(m.history, true)}" fill="url(#cg)" stroke="none"/>
-    <path d="${sparkPath(m.history)}" fill="none" stroke="#00B287" stroke-width="2.5" vector-effect="non-scaling-stroke"/>
+    <path d="${sparkPath(m.history)}" fill="none" stroke="#2E9E44" stroke-width="2.5" vector-effect="non-scaling-stroke"/>
   `;
   document.getElementById('dockBuy').textContent = won(m.prices.A.buy);
   document.getElementById('dockSell').textContent = won(m.prices.A.sell);
@@ -1954,8 +2008,46 @@ function handlePgCallback(){
   }
 }
 
+function handleViewDeepLink(){
+  const params = new URLSearchParams(location.search);
+  const view = params.get('view');
+  const allowed = ['terms','privacy','bizinfo','verifycert','notice','guide'];
+  if(view && allowed.includes(view)){
+    currentView = view;
+  }
+}
+
 document.addEventListener('click', ()=>{ const tb = document.getElementById('tierBox'); if(tb) tb.classList.remove('open'); });
 
+// ---------------- PWA: 서비스워커 등록 + 설치 유도 ----------------
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', ()=> navigator.serviceWorker.register('/sw.js').catch(()=>{}));
+}
+let deferredInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', (e)=>{
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  if(!localStorage.getItem('pwaInstallDismissed')) showInstallBanner();
+});
+function showInstallBanner(){
+  const el = document.getElementById('pwaInstallBanner');
+  if(el) el.style.display = 'flex';
+}
+async function installPwa(){
+  const el = document.getElementById('pwaInstallBanner');
+  if(el) el.style.display = 'none';
+  if(!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt = null;
+}
+function dismissInstallBanner(){
+  const el = document.getElementById('pwaInstallBanner');
+  if(el) el.style.display = 'none';
+  localStorage.setItem('pwaInstallDismissed', '1');
+}
+
+handleViewDeepLink();
 loadBizInfo();
 loadAnnouncements();
 loadPopular();

@@ -395,6 +395,18 @@ def init_db(force=False):
     except sqlite3.OperationalError:
         pass
     try:
+        c.execute('ALTER TABLE users ADD COLUMN agreed_terms_at TEXT')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE users ADD COLUMN agreed_privacy_at TEXT')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE users ADD COLUMN agreed_marketing INTEGER DEFAULT 0')
+    except sqlite3.OperationalError:
+        pass
+    try:
         c.execute('ALTER TABLE sell_requests ADD COLUMN is_fast_track INTEGER DEFAULT 0')
     except sqlite3.OperationalError:
         pass
@@ -1160,6 +1172,8 @@ def api_signup():
         return jsonify({'error': '올바른 이메일 형식이 아니에요'}), 400
     if len(password) < 8:
         return jsonify({'error': '비밀번호는 8자 이상이어야 해요'}), 400
+    if not data.get('agree_terms') or not data.get('agree_privacy'):
+        return jsonify({'error': '이용약관과 개인정보처리방침에 동의해주세요'}), 400
 
     conn = get_db(); c = conn.cursor()
     verified_row = c.execute(
@@ -1175,8 +1189,10 @@ def api_signup():
         conn.close(); return jsonify({'error': '이미 가입된 이메일이에요'}), 400
 
     pw_hash = generate_password_hash(password)
-    c.execute('INSERT INTO users(email,password_hash,created_at) VALUES (?,?,?)',
-              (email, pw_hash, now_iso()))
+    ts = now_iso()
+    c.execute('''INSERT INTO users(email,password_hash,created_at,agreed_terms_at,agreed_privacy_at,agreed_marketing)
+                 VALUES (?,?,?,?,?,?)''',
+              (email, pw_hash, ts, ts, ts, 1 if data.get('agree_marketing') else 0))
     user_id = c.lastrowid
     c.execute('INSERT INTO wallet(user_id,balance) VALUES (?,?)', (user_id, 0))
 
