@@ -1,0 +1,2061 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#FBF9F1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="콩나물">
+<meta name="description" content="검수완료 에어팟을 안심하고 사고파는 곳, 콩나물">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icons/favicon-64.png" type="image/png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<title>콩나물 — 에어팟 리셀 마켓</title>
+<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://js.tosspayments.com/v1/payment"></script>
+<style>
+  :root{
+    --bg:#FBF9F1; --bg-panel:#FFFFFF; --bg-panel-warm:#FFFDF8; --bg-input:#F6F5EC;
+    --border:#EAE4D3; --border-soft:#F2EEE1;
+    --ink:#212B1E; --ink-muted:#71795F; --ink-faint:#A9AD94;
+    --mint:#2E9E44; --mint-deep:#217A34; --mint-line:#A8DBAE; --mint-tint:#E7F6E9;
+    --lime:#93C23A; --lime-line:#D0E9A0; --lime-tint:#F2F8E0;
+    --bean:#FFC629; --bean-line:#FFE28A; --bean-tint:#FFF4D6; --bean-deep:#8A6100;
+    --red:#E15C71; --red-line:#F5B9C4; --red-tint:#FCE9EC;
+    --shadow-xs:0 1px 2px rgba(33,43,30,0.05);
+    --shadow-sm:0 3px 12px rgba(33,43,30,0.06);
+    --shadow-mint:0 10px 24px -8px rgba(46,158,68,0.35);
+    --shadow-lift:0 16px 36px -12px rgba(33,43,30,0.18);
+    --font-mono:'JetBrains Mono','SF Mono',monospace; --font-body:'Pretendard',-apple-system,sans-serif;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  ::selection{ background:var(--mint-tint); color:var(--mint-deep); }
+  body{ background:
+      radial-gradient(680px 380px at 92% -6%, rgba(147,194,58,0.10), transparent 60%),
+      radial-gradient(560px 320px at -4% 8%, rgba(255,198,41,0.09), transparent 55%),
+      var(--bg);
+    color:var(--ink); font-family:var(--font-body); -webkit-font-smoothing:antialiased; padding-bottom:60px; min-height:100vh;}
+  .view{ animation:viewIn .32s cubic-bezier(.16,1,.3,1); }
+  @keyframes viewIn{ from{ opacity:0; transform:translateY(6px);} to{ opacity:1; transform:translateY(0);} }
+  @media (prefers-reduced-motion: reduce){ .view{ animation:none; } }
+  .topbar{ position:sticky; top:0; z-index:20; background:rgba(251,249,241,0.86); backdrop-filter:blur(10px) saturate(1.1);
+    border-bottom:1px solid var(--border); display:flex; align-items:center; gap:18px; padding:13px 20px; flex-wrap:wrap; }
+  .logo{ font-weight:800; font-size:17.5px; display:flex; align-items:center; gap:7px; letter-spacing:-0.02em; color:var(--ink); }
+  .logo .sprout{ display:inline-flex; }
+  .live-tag{ font-family:var(--font-mono); font-size:10px; color:var(--mint-deep); background:var(--mint-tint); border:1px solid var(--mint-line); padding:3px 8px; border-radius:12px; margin-left:2px; display:inline-flex; align-items:center; gap:4px; }
+  .live-tag .dot{ width:5px; height:5px; border-radius:50%; background:var(--mint); animation:blink 1.6s ease-in-out infinite; }
+  @keyframes blink{ 0%,100%{opacity:1;} 50%{opacity:.35;} }
+  .nav{ display:flex; gap:4px; flex:1; flex-wrap:wrap; }
+  .bottom-nav{ display:none; }
+  @media(max-width:680px){
+    body{ padding-bottom:78px; }
+    .topbar{ gap:10px; padding:10px 14px; }
+    .topbar .nav{ display:none; }
+    .bottom-nav{
+      display:flex; position:fixed; bottom:0; left:0; right:0; z-index:50;
+      background:rgba(255,253,248,0.94); backdrop-filter:blur(14px);
+      border-top:1px solid var(--border); overflow-x:auto; -webkit-overflow-scrolling:touch;
+      padding:6px 6px calc(6px + env(safe-area-inset-bottom, 0px)); gap:2px;
+      box-shadow:0 -8px 24px rgba(33,43,30,0.06);
+    }
+    .bottom-nav::-webkit-scrollbar{ display:none; }
+    .bottom-navbtn{
+      flex:0 0 auto; min-width:58px; display:flex; flex-direction:column; align-items:center; gap:2px;
+      padding:7px 10px; border-radius:12px; border:none; background:transparent; color:var(--ink-muted);
+      font-size:10px; font-weight:700; font-family:var(--font-body); cursor:pointer; transition:.15s;
+    }
+    .bottom-navbtn .ic{ font-size:18px; line-height:1; }
+    .bottom-navbtn.active{ color:var(--mint-deep); background:var(--mint-tint); transform:translateY(-1px); }
+    .auth-input, input[type="number"], input[type="email"], input[type="password"], textarea{ font-size:16px !important; }
+    .seg button{ padding:11px 4px; min-height:44px; }
+    .action-btn{ padding:14px; font-size:14.5px; }
+    .mini-btn{ padding:9px 12px; }
+    .navbtn{ display:none; }
+    .tickers{ grid-template-columns:repeat(2,1fr); gap:6px; }
+    .ticker{ padding:10px 10px 8px; }
+    .panel{ padding:15px; border-radius:14px; }
+    .wrap{ padding:14px 12px 0; }
+    #toastbox{ bottom:88px; }
+    button, .navbtn, .bottom-navbtn, .mini-btn, .action-btn{ -webkit-tap-highlight-color:transparent; }
+  }
+  .navbtn{ background:transparent; border:1px solid transparent; color:var(--ink-muted); font-family:var(--font-body);
+    font-size:13px; font-weight:600; padding:8px 14px; border-radius:20px; cursor:pointer; }
+  .navbtn:hover{ color:var(--ink); background:var(--bg-input); }
+  .navbtn.active{ color:var(--mint-deep); background:var(--mint-tint); border-color:var(--mint-line); }
+  .wallet{ display:flex; align-items:center; gap:8px; font-family:var(--font-mono); font-size:12.5px;
+    background:var(--bg-panel); border:1px solid var(--border); padding:7px 12px; border-radius:20px; }
+  .wallet b{ color:var(--bean-deep); }
+  .tier-chip{ position:relative; display:flex; align-items:center; gap:5px; font-family:var(--font-body);
+    background:var(--bg-panel); border:1px solid var(--border); padding:6px 10px 6px 8px; border-radius:20px;
+    cursor:default; transition:border-color .15s, box-shadow .15s; }
+  .tier-chip:hover{ box-shadow:var(--shadow-sm); }
+  .tier-chip .ic{ font-size:13px; line-height:1; }
+  .tier-chip .name{ font-weight:800; font-size:12px; letter-spacing:-0.01em; }
+  .tier-pop{ position:absolute; top:calc(100% + 8px); left:50%; transform:translateX(-50%) translateY(-4px);
+    width:200px; background:#fff; border:1px solid var(--border); border-radius:14px; box-shadow:var(--shadow-lift);
+    padding:12px; opacity:0; pointer-events:none; transition:opacity .15s, transform .15s; z-index:30; text-align:left; }
+  .tier-chip:hover .tier-pop{ opacity:1; transform:translateX(-50%) translateY(0); pointer-events:auto; }
+  .tier-chip.open .tier-pop{ opacity:1; transform:translateX(-50%) translateY(0); pointer-events:auto; }
+  .tier-pop::before{ content:''; position:absolute; top:-5px; left:50%; transform:translateX(-50%) rotate(45deg);
+    width:9px; height:9px; background:#fff; border-left:1px solid var(--border); border-top:1px solid var(--border); }
+  .tier-pop .title{ font-size:11.5px; font-weight:700; color:var(--ink); margin-bottom:6px; }
+  .tier-track{ height:6px; border-radius:4px; background:var(--bg-input); overflow:hidden; margin:6px 0; }
+  .tier-track .fill{ height:100%; border-radius:4px; transition:width .3s; }
+  .tier-pop .sub{ font-size:10.5px; color:var(--ink-muted); line-height:1.5; }
+  .pwa-install-banner{ display:none; align-items:center; gap:10px; position:sticky; top:0; z-index:19;
+    background:var(--mint-tint); border-bottom:1px solid var(--mint-line); padding:9px 16px; font-size:12.5px; }
+  .pwa-install-banner .ic{ font-size:15px; }
+  .pwa-install-banner .txt{ flex:1; color:var(--mint-deep); font-weight:600; }
+  .pwa-install-banner .btn-install{ background:var(--mint); color:#fff; border:none; padding:6px 13px; border-radius:14px;
+    font-size:11.5px; font-weight:700; cursor:pointer; }
+  .pwa-install-banner .btn-dismiss{ background:none; border:none; color:var(--mint-deep); font-size:14px; cursor:pointer; padding:4px; opacity:.6; }
+  .pwa-install-banner .btn-dismiss:hover{ opacity:1; }
+  .reset-btn{ font-family:var(--font-body); font-weight:600; font-size:12px; color:var(--ink-muted); background:var(--bg-panel);
+    border:1px solid var(--border); padding:7px 12px; border-radius:20px; cursor:pointer; }
+  .wrap{ max-width:1080px; margin:0 auto; padding:20px 16px 0; }
+  .view{ display:none; } .view.active{ display:block; }
+  .pagehead{ margin-bottom:16px; }
+  .pagehead h1{ font-size:23px; font-weight:800; letter-spacing:-0.02em; line-height:1.25; } .pagehead p{ font-size:12.5px; color:var(--ink-muted); margin-top:5px; line-height:1.5; }
+  .tickers{ display:grid; grid-template-columns:repeat(auto-fill, minmax(140px,1fr)); gap:8px; margin-bottom:14px; }
+  .ticker{ background:var(--bg-panel); border:1px solid var(--border); border-radius:14px; padding:12px 12px 10px; cursor:pointer; transition:transform .18s cubic-bezier(.2,.8,.3,1), box-shadow .18s, border-color .18s; box-shadow:var(--shadow-xs); }
+  .ticker:hover{ border-color:var(--mint-line); transform:translateY(-2px); box-shadow:var(--shadow-sm); }
+  .ticker.active{ border-color:var(--mint); background:var(--mint-tint); box-shadow:var(--shadow-mint); }
+  .ticker-code{ font-family:var(--font-mono); font-size:12px; font-weight:700; color:var(--ink-muted); }
+  .ticker.active .ticker-code{ color:var(--mint-deep); }
+  .ticker-name{ font-size:12px; margin-top:2px; font-weight:600; }
+  .ticker-row{ display:flex; justify-content:space-between; margin-top:8px; }
+  .ticker-price{ font-family:var(--font-mono); font-size:13px; font-weight:700; }
+  .grid2{ display:grid; grid-template-columns:1.5fr 1fr; gap:14px; }
+  @media(max-width:820px){ .grid2{ grid-template-columns:1fr; } .tickers{ grid-template-columns:repeat(2,1fr); } }
+  .panel{ background:var(--bg-panel); border:1px solid var(--border); border-radius:16px; padding:18px; margin-bottom:14px; box-shadow:var(--shadow-xs); }
+  .panel-title{ font-size:11px; font-weight:700; color:var(--ink-muted); letter-spacing:.06em; text-transform:uppercase; margin-bottom:14px; display:flex; justify-content:space-between; }
+  .countdown{ font-family:var(--font-mono); color:var(--bean-deep); font-weight:700; }
+  .chart-svg{ width:100%; height:140px; display:block; }
+  .price-dock{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:14px; }
+  .dock-card{ background:var(--bg-input); border:1px solid var(--border); border-radius:12px; padding:12px; transition:transform .15s; }
+  .dock-card:hover{ transform:translateY(-1px); }
+  .dock-card .l{ font-size:11px; color:var(--ink-muted); } .dock-card .v{ font-family:var(--font-mono); font-size:19px; font-weight:800; margin-top:4px; }
+  .dock-card.buy .v{ color:var(--lime); } .dock-card.sell .v{ color:var(--mint); }
+  .spread-line{ margin-top:10px; font-size:11.5px; color:var(--ink-faint); text-align:center; }
+  .ext-ref{ margin-top:14px; background:var(--bg-input); border:1px solid var(--border); border-radius:12px; padding:11px 13px; }
+  .ext-ref .row1{ display:flex; justify-content:space-between; align-items:baseline; }
+  .ext-ref .lbl{ font-size:11px; color:var(--ink-muted); } .ext-ref .val{ font-family:var(--font-mono); font-size:14px; font-weight:700; color:var(--bean-deep); }
+  .ext-ref .src{ font-size:10px; color:var(--ink-faint); margin-top:2px; }
+  .weight-track{ margin-top:9px; height:5px; background:var(--border); border-radius:3px; overflow:hidden; display:flex; }
+  .weight-fill-int{ background:var(--mint); height:100%; } .weight-fill-ext{ background:var(--bean); height:100%; }
+  .weight-legend{ display:flex; justify-content:space-between; font-size:10px; color:var(--ink-faint); margin-top:5px; }
+  .stat-grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:10px; }
+  .stat-card{ background:var(--bg-input); border:1px solid var(--border); border-radius:12px; padding:12px; text-align:center; }
+  .stat-card .v{ font-family:var(--font-mono); font-size:17px; font-weight:800; color:var(--mint); } .stat-card .l{ font-size:10.5px; color:var(--ink-muted); margin-top:3px; }
+  .feed{ display:flex; flex-direction:column; max-height:230px; overflow-y:auto; }
+  .feed-item{ display:flex; justify-content:space-between; padding:9px 2px; font-size:12px; border-bottom:1px solid var(--border-soft); }
+  .feed-item .tag{ font-family:var(--font-mono); font-weight:700; margin-right:6px; }
+  .feed-item .tag.sell_to_user{ color:var(--lime); } .feed-item .tag.buy_from_user{ color:var(--mint); }
+  .feed-item .time{ color:var(--ink-faint); font-family:var(--font-mono); font-size:10.5px; }
+  .seg{ display:grid; gap:6px; } .seg-4{ grid-template-columns:repeat(4,1fr); } .seg-2{ grid-template-columns:repeat(2,1fr); }
+  .seg button{ background:var(--bg-input); border:1px solid var(--border); color:var(--ink-muted); font-size:12.5px; font-weight:600; padding:9px 4px; border-radius:10px; cursor:pointer; transition:.15s; }
+  .seg button:hover{ border-color:var(--mint-line); }
+  .seg button:active{ transform:scale(0.97); }
+  .seg button.on{ background:var(--mint-tint); border-color:var(--mint); color:var(--mint-deep); box-shadow:inset 0 0 0 1px var(--mint-line); }
+  .seg button small{ display:block; font-weight:400; font-size:10px; margin-top:2px; opacity:.85; }
+  .field{ margin-bottom:16px; } .field-label{ font-size:12.5px; color:var(--ink-muted); margin-bottom:8px; }
+  .trade-cols{ display:grid; grid-template-columns:1fr 1fr; gap:14px; } @media(max-width:820px){ .trade-cols{ grid-template-columns:1fr; } }
+  .trade-card{ background:var(--bg-panel); border:1px solid var(--border); border-radius:16px; padding:18px; }
+  .trade-card h3{ font-size:14px; margin-bottom:2px; } .trade-card .sub{ font-size:11.5px; color:var(--ink-muted); margin-bottom:14px; }
+  .big-price{ font-family:var(--font-mono); font-size:30px; font-weight:800; margin:10px 0 4px; }
+  .trade-card.sell-card .big-price{ color:var(--mint); } .trade-card.buy-card .big-price{ color:var(--lime); }
+  .stock-line{ font-size:12px; color:var(--ink-muted); margin-bottom:14px; font-family:var(--font-mono); }
+  .action-btn{ width:100%; padding:12px; border-radius:12px; border:none; font-weight:700; font-size:13.5px; cursor:pointer; color:#fff;
+    transition:transform .12s cubic-bezier(.2,.8,.3,1), box-shadow .15s, filter .15s; }
+  .action-btn:active{ transform:scale(0.98); }
+  .action-btn.mint{ background:var(--mint); box-shadow:var(--shadow-mint); } .action-btn.mint:hover{ filter:brightness(1.06); }
+  .action-btn.red{ background:var(--lime); box-shadow:0 10px 24px -8px rgba(147,194,58,0.4); } .action-btn.red:hover{ filter:brightness(1.06); }
+  .action-btn:disabled{ background:var(--bg-input); color:var(--ink-faint); cursor:not-allowed; box-shadow:none; transform:none; }
+  .port-summary{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:14px; } @media(max-width:600px){ .port-summary{ grid-template-columns:1fr; } }
+  .port-row{ display:grid; grid-template-columns:1.3fr 1fr 1fr 1fr auto; gap:8px; align-items:center; padding:11px 4px; border-bottom:1px solid var(--border-soft); font-size:12.5px; }
+  @media(max-width:700px){ .port-row{ grid-template-columns:1fr; background:var(--bg-input); border-radius:12px; margin-bottom:8px; padding:12px 8px; border-bottom:none; } }
+  .port-row .mono{ font-family:var(--font-mono); } .port-row .pl-up{ color:var(--mint); } .port-row .pl-down{ color:var(--red); }
+  .fee-free{ font-size:10.5px; color:var(--ink-faint); }
+  .fee-warn{ font-size:10.5px; color:var(--bean-deep); }
+  .port-row.expand{ grid-template-columns:1fr; background:var(--bg-input); border-radius:12px; padding:14px; margin-bottom:8px; border-bottom:none; }
+  .delivery-flow{ margin-top:12px; padding-top:12px; border-top:1px dashed var(--border); }
+  .fee-breakdown{ font-size:12px; color:var(--ink-muted); margin-top:10px; line-height:1.6; }
+  .fee-breakdown b{ color:var(--bean-deep); font-family:var(--font-mono); }
+  .port-actions{ display:flex; gap:6px; }
+  .mini-btn{ font-size:11px; font-weight:600; padding:6px 9px; border-radius:8px; border:1px solid var(--border); background:var(--bg-panel); color:var(--ink-muted); cursor:pointer; }
+  .mini-btn:hover{ border-color:var(--mint-line); color:var(--ink); }
+  .empty-state{ text-align:center; padding:44px 10px; color:var(--ink-muted); font-size:13px; }
+  .empty-state .glyph{ font-size:30px; display:block; margin-bottom:10px; opacity:.7; }
+  .grade-table{ width:100%; border-collapse:collapse; font-size:12.5px; }
+  .grade-table th,.grade-table td{ text-align:left; padding:9px 8px; border-bottom:1px solid var(--border-soft); }
+  .grade-badge{ font-family:var(--font-mono); font-weight:700; padding:2px 8px; border-radius:6px; background:var(--mint-tint); color:var(--mint-deep); }
+  .note{ font-size:11.5px; color:var(--ink-faint); line-height:1.6; margin-top:10px; }
+  #toastbox{ position:fixed; bottom:20px; left:50%; transform:translateX(-50%); z-index:100; display:flex; flex-direction:column; gap:8px; align-items:center; }
+  .toast{ background:#FFFFFF; border:1px solid var(--mint-line); box-shadow:var(--shadow-lift); color:var(--ink); font-size:12.5px; font-weight:600; padding:11px 18px; border-radius:14px; opacity:0; transform:translateY(10px) scale(0.96); transition:opacity .3s cubic-bezier(.2,.8,.3,1), transform .3s cubic-bezier(.2,.8,.3,1); white-space:nowrap; }
+  .toast.show{ opacity:1; transform:translateY(0) scale(1); }
+  .toast::before{ content:'🌱'; margin-right:7px; font-size:11px; }
+  .conn-badge{ font-family:var(--font-mono); font-size:10px; padding:3px 8px; border-radius:12px; }
+  .conn-badge.ok{ color:var(--mint-deep); background:var(--mint-tint); border:1px solid var(--mint-line); }
+  .conn-badge.fail{ color:#B23A4C; background:var(--red-tint); border:1px solid var(--red-line); }
+
+  .announce-banner{ background:linear-gradient(120deg, var(--lime-tint), var(--mint-tint)); border:1px solid var(--lime-line);
+    border-radius:14px; padding:12px 16px; margin-bottom:14px; font-size:12.5px; display:flex; gap:10px; align-items:flex-start; }
+  .announce-banner b{ display:block; font-size:13px; margin-bottom:2px; }
+  .plus-panel{ position:relative; overflow:hidden; background:linear-gradient(135deg, var(--mint-tint), var(--lime-tint)); border-color:var(--mint-line); }
+  .guide-jumpnav{ display:flex; gap:6px; overflow-x:auto; padding-bottom:6px; margin-bottom:16px; -webkit-overflow-scrolling:touch; }
+  .guide-jumpnav::-webkit-scrollbar{ display:none; }
+  .guide-jumpnav button{ flex:0 0 auto; font-size:11.5px; font-weight:600; color:var(--ink-muted); background:var(--bg-panel);
+    border:1px solid var(--border); padding:7px 13px; border-radius:16px; cursor:pointer; transition:.15s; white-space:nowrap; }
+  .guide-jumpnav button:hover{ border-color:var(--mint-line); color:var(--mint-deep); background:var(--mint-tint); }
+  .plus-panel::before{ content:''; position:absolute; top:-60%; right:-8%; width:220px; height:220px;
+    background:radial-gradient(circle, rgba(255,255,255,0.65), transparent 70%); pointer-events:none; }
+  .plus-panel .panel-title{ display:flex; align-items:center; gap:8px; }
+  .plus-badge{ display:inline-flex; align-items:center; gap:3px; font-size:9.5px; font-weight:800; letter-spacing:.04em;
+    background:var(--mint); color:#fff; padding:3px 8px; border-radius:8px; text-transform:none; }
+  .plus-price{ font-family:var(--font-mono); font-size:22px; font-weight:800; color:var(--mint-deep); }
+  .plus-perks{ list-style:none; margin:12px 0; padding:0; display:flex; flex-direction:column; gap:7px; }
+  .plus-perks li{ display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--ink); position:relative; z-index:1; }
+  .plus-perks li::before{ content:'✓'; display:flex; align-items:center; justify-content:center; width:16px; height:16px;
+    border-radius:50%; background:var(--mint); color:#fff; font-size:10px; font-weight:800; flex-shrink:0; }
+  .drop-banner{ border-radius:14px; padding:14px 16px; margin-bottom:14px; font-size:13px; border:1px solid; }
+  .drop-banner.wait{ background:var(--bean-tint); border-color:var(--bean-line); color:#8A6300; }
+  .drop-banner.live{ background:var(--mint-tint); border-color:var(--mint-line); color:var(--mint-deep); }
+  .drop-banner.ended{ background:var(--red-tint); border-color:var(--red-line); color:#B23A4C; }
+  .drop-banner b{ display:block; font-size:15px; font-family:var(--font-mono); margin-top:4px; }
+  .risk-banner{ border-radius:12px; padding:12px 14px; margin-bottom:10px; font-size:12px; line-height:1.6; }
+  .risk-banner.level1{ background:var(--bean-tint); border:1px solid var(--bean-line); color:#8A6300; }
+  .risk-banner.level2{ background:var(--red-tint); border:1px solid var(--red-line); color:#B23A4C; }
+
+  .auth-overlay{ position:fixed; inset:0; background:rgba(33,43,30,0.42); backdrop-filter:blur(3px); z-index:200; display:flex; align-items:center; justify-content:center; padding:16px; animation:fadeIn .2s ease; }
+  @keyframes fadeIn{ from{opacity:0;} to{opacity:1;} }
+  .auth-card{ background:var(--bg-panel); border:1px solid var(--border); border-radius:20px; padding:24px; width:100%; max-width:360px; box-shadow:var(--shadow-lift); animation:cardIn .25s cubic-bezier(.2,.9,.3,1.1); }
+  @keyframes cardIn{ from{opacity:0; transform:translateY(8px) scale(.98);} to{opacity:1; transform:translateY(0) scale(1);} }
+  .auth-card-mark{ display:flex; justify-content:center; margin-bottom:12px; }
+  .auth-tabs{ display:flex; gap:6px; margin-bottom:16px; }
+  .auth-tabs button{ flex:1; padding:9px; border-radius:20px; border:1px solid var(--border); background:var(--bg-input); color:var(--ink-muted); font-weight:600; font-size:13px; cursor:pointer; }
+  .auth-tabs button.on{ background:var(--mint-tint); border-color:var(--mint); color:var(--mint-deep); }
+  .auth-input{ width:100%; background:var(--bg-input); border:1px solid var(--border); color:var(--ink); font-family:var(--font-mono); font-size:13.5px; padding:10px 12px; border-radius:10px; outline:none; }
+  .auth-input:focus{ border-color:var(--mint); }
+  .auth-note{ font-size:11px; color:var(--ink-faint); margin-top:6px; min-height:14px; }
+  .consent-box{ margin-top:14px; padding:10px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:10px; }
+  .consent-row{ display:flex; align-items:center; gap:6px; font-size:12px; color:var(--ink-muted); padding:5px 0; cursor:pointer; }
+  .consent-row a{ margin-left:auto; color:var(--mint-deep); text-decoration:underline; font-size:11px; }
+  .consent-all{ border-bottom:1px solid var(--border); padding-bottom:8px; margin-bottom:4px; font-size:13px; color:var(--ink); }
+  .auth-link-btn{ background:transparent; border:none; color:var(--mint); font-size:12px; font-weight:600; cursor:pointer; padding:6px 10px; }
+  .user-chip{ display:flex; align-items:center; gap:8px; font-size:12px; color:var(--ink-muted); }
+  .numwrap{ display:flex; align-items:center; gap:6px; }
+  .numwrap span{ font-family:var(--font-mono); font-weight:700; color:var(--ink-muted); }
+  .pin-box{ background:var(--bean-tint); border:1px solid var(--bean-line); border-radius:12px; padding:14px; margin-top:14px; }
+  .user-chip b{ color:var(--ink); font-family:var(--font-mono); font-size:11.5px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo"><span class="sprout">
+    <svg width="20" height="24" viewBox="0 0 20 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M10 23C10 15 6 13 6 8" stroke="#2E9E44" stroke-width="2.2" stroke-linecap="round"/>
+      <path d="M10 23C10 16 14 14 14 9" stroke="#93C23A" stroke-width="2" stroke-linecap="round" opacity="0.85"/>
+      <ellipse cx="6" cy="6.5" rx="3.4" ry="2.6" transform="rotate(-25 6 6.5)" fill="#FFC629"/>
+      <ellipse cx="14" cy="7.5" rx="3" ry="2.3" transform="rotate(20 14 7.5)" fill="#FFC629" opacity="0.9"/>
+    </svg>
+  </span>콩나물<span class="live-tag" id="connBadge"><span class="dot"></span>연결중...</span></div>
+  <div class="nav" id="navBtns"></div>
+  <div class="tier-chip" id="tierBox" style="display:none;"></div>
+  <div class="wallet" id="walletBox" style="display:none;">잔액 <b id="walletVal">₩0</b></div>
+  <div id="authBox"></div>
+</div>
+<div class="bottom-nav" id="bottomNavBtns"></div>
+
+<div id="pwaInstallBanner" class="pwa-install-banner">
+  <span class="ic">🌱</span>
+  <span class="txt">콩나물을 홈 화면에 추가하면 앱처럼 바로 열 수 있어요</span>
+  <button class="btn-install" onclick="installPwa()">추가하기</button>
+  <button class="btn-dismiss" onclick="dismissInstallBanner()">✕</button>
+</div>
+
+<div id="authOverlay" class="auth-overlay" style="display:none;">
+  <div class="auth-card">
+    <div class="auth-card-mark">
+      <svg width="28" height="34" viewBox="0 0 20 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M10 23C10 15 6 13 6 8" stroke="#2E9E44" stroke-width="2.2" stroke-linecap="round"/>
+        <path d="M10 23C10 16 14 14 14 9" stroke="#93C23A" stroke-width="2" stroke-linecap="round" opacity="0.85"/>
+        <ellipse cx="6" cy="6.5" rx="3.4" ry="2.6" transform="rotate(-25 6 6.5)" fill="#FFC629"/>
+        <ellipse cx="14" cy="7.5" rx="3" ry="2.3" transform="rotate(20 14 7.5)" fill="#FFC629" opacity="0.9"/>
+      </svg>
+    </div>
+    <div class="auth-tabs">
+      <button id="authTabSignup" class="on" onclick="switchAuthTab('signup')">회원가입</button>
+      <button id="authTabLogin" onclick="switchAuthTab('login')">로그인</button>
+    </div>
+
+    <div id="authSignupForm">
+      <div class="field-label">이메일</div>
+      <input class="auth-input" id="suEmail" type="email" placeholder="you@example.com">
+      <button class="mini-btn" style="margin:8px 0;" onclick="sendCode()">인증코드 받기</button>
+      <div class="auth-note" id="codeSentNote"></div>
+      <div class="field-label" style="margin-top:10px;">인증코드 (6자리)</div>
+      <input class="auth-input" id="suCode" maxlength="6" placeholder="000000">
+      <div class="field-label" style="margin-top:10px;">비밀번호 (8자 이상)</div>
+      <input class="auth-input" id="suPassword" type="password" placeholder="********">
+
+      <div class="consent-box">
+        <label class="consent-row consent-all">
+          <input type="checkbox" id="agreeAll" onchange="toggleAgreeAll()"> <b>전체 동의</b>
+        </label>
+        <label class="consent-row">
+          <input type="checkbox" id="agreeTerms" onchange="syncAgreeAll()"> <span>[필수] 이용약관 동의</span>
+          <a href="/?view=terms" target="_blank" onclick="event.stopPropagation()">보기</a>
+        </label>
+        <label class="consent-row">
+          <input type="checkbox" id="agreePrivacy" onchange="syncAgreeAll()"> <span>[필수] 개인정보처리방침 동의</span>
+          <a href="/?view=privacy" target="_blank" onclick="event.stopPropagation()">보기</a>
+        </label>
+        <label class="consent-row">
+          <input type="checkbox" id="agreeMarketing" onchange="syncAgreeAll()"> <span>[선택] 마케팅 정보 수신 동의</span>
+        </label>
+      </div>
+
+      <button class="action-btn mint" style="margin-top:14px;" onclick="doSignup()">가입하기</button>
+    </div>
+
+    <div id="authLoginForm" style="display:none;">
+      <div class="field-label">이메일</div>
+      <input class="auth-input" id="liEmail" type="email" placeholder="you@example.com">
+      <div class="field-label" style="margin-top:10px;">비밀번호</div>
+      <input class="auth-input" id="liPassword" type="password" placeholder="********">
+      <button class="action-btn mint" style="margin-top:14px;" onclick="doLogin()">로그인</button>
+    </div>
+
+    <button class="mini-btn" style="margin-top:14px; width:100%;" onclick="closeAuth()">닫기</button>
+  </div>
+</div>
+
+<div class="wrap">
+  <section class="view active" id="view-market">
+    <div class="pagehead"><h1>실시간 시세</h1><p>체결된 거래를 반영해서 <span id="tickSecLabel">30</span>초마다 시세가 갱신돼요</p></div>
+    <div id="noticeBanner"></div>
+    <div id="popularBanner"></div>
+    <div class="field"><input class="auth-input" id="marketSearchTop" placeholder="🔍 모델명으로 검색 (예: 프로2, PRO3)" style="width:100%; max-width:340px; font-family:var(--font-body);" oninput="onSearchInput(this.value)"></div>
+    <div class="tickers" id="marketTickers"></div>
+    <div class="grid2">
+      <div class="panel">
+        <div class="panel-title"><span id="chartTitle">시세 차트</span><span class="countdown" id="countdownText">-</span></div>
+        <svg class="chart-svg" id="chartSvg" viewBox="0 0 300 100" preserveAspectRatio="none"></svg>
+        <div class="price-dock">
+          <div class="dock-card buy"><div class="l">판매가 (내가 팔 때, A급)</div><div class="v" id="dockBuy">₩0</div></div>
+          <div class="dock-card sell"><div class="l">구매가 (내가 살 때, A급)</div><div class="v" id="dockSell">₩0</div></div>
+        </div>
+        <div class="spread-line" id="spreadLine"></div>
+        <div class="ext-ref" id="extRefBox"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">운영 현황</div>
+        <div class="stat-grid">
+          <div class="stat-card"><div class="v" id="statInspected">0</div><div class="l">누적 검수완료</div></div>
+          <div class="stat-card"><div class="v" id="statToday">0</div><div class="l">오늘 체결 건수</div></div>
+          <div class="stat-card"><div class="v">9.5분</div><div class="l">평균 검수 소요</div></div>
+          <div class="stat-card"><div class="v" id="statStock">0</div><div class="l">전 모델 재고 합계</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="panel"><div class="panel-title">실시간 체결 피드 (DB 저장)</div><div class="feed" id="feedList"></div></div>
+  </section>
+
+  <section class="view" id="view-trade">
+    <div class="pagehead"><h1>구매하기</h1><p>검수완료된 재고를 즉시 구매해요. 내 에어팟을 팔고 싶다면 상단의 "매입신청" 탭을 이용하세요.</p></div>
+    <div class="field"><input class="auth-input" id="marketSearch" placeholder="🔍 모델명으로 검색 (예: 프로2, PRO3)" style="width:100%; max-width:340px; font-family:var(--font-body);" oninput="onSearchInput(this.value)"></div>
+    <div class="tickers" id="tradeTickers"></div>
+    <div id="dropBanner"></div>
+    <div class="field"><div class="field-label">등급 선택</div><div class="seg seg-4" id="tradeGradeSeg"></div></div>
+    <div class="trade-cols" style="grid-template-columns:1fr; max-width:420px;">
+      <div class="trade-card buy-card">
+        <h3>검수완료 제품 구매하기</h3><div class="sub">정품·상태 검수를 마친 재고예요</div>
+        <div class="big-price" id="buyPrice">₩0</div>
+        <div class="stock-line" id="stockLine">재고 확인 중...</div>
+        <div class="field"><div class="field-label">수령 방법</div><div class="seg seg-2" id="deliverySeg"></div></div>
+        <div class="field" id="regionField" style="display:none;"><div class="field-label">배송 지역</div><div class="seg seg-2" id="regionSeg"></div></div>
+        <div class="stock-line" id="totalDueLine" style="margin-bottom:14px;"></div>
+        <button class="action-btn red" id="buyBtn" onclick="doBuy()">구매하기</button>
+        <div class="btn-row" style="display:flex; gap:6px; margin-top:8px;">
+          <button class="mini-btn" id="reserveBtn" style="flex:1; display:none;" onclick="toggleReserve()">🔔 예약 알림 받기</button>
+          <button class="mini-btn" id="wishlistBtn" style="flex:1;" onclick="toggleWishlist()">🤍 찜하기</button>
+          <button class="mini-btn" id="alertBtn" style="flex:1;" onclick="openPriceAlert()">📉 가격알림</button>
+        </div>
+        <button class="mini-btn" style="width:100%; margin-top:8px;" onclick="toggleGiftForm()">🎁 선물로 보내기</button>
+        <div id="giftForm" style="display:none; margin-top:10px; padding-top:10px; border-top:1px dashed var(--border);">
+          <div class="field-label">받는 분 이메일</div>
+          <input class="auth-input" id="giftToEmail" placeholder="friend@example.com">
+          <div class="field-label">메시지 (선택)</div>
+          <textarea class="auth-input" id="giftMessage" style="width:100%; min-height:50px; font-family:var(--font-body);" placeholder="생일 축하해!"></textarea>
+          <div class="stock-line" id="giftFeeLine" style="margin-bottom:10px;"></div>
+          <button class="action-btn mint" onclick="sendGift()">선물 보내기</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:14px;">
+      <div class="panel-title">내 가격 알림 · 찜 목록</div>
+      <div id="myAlertsWishlist"></div>
+    </div>
+  </section>
+
+  <section class="view" id="view-sell">
+    <div class="pagehead"><h1>매입 신청</h1><p>신청 → 배송 접수 → 수령확인 → 검수 → 정산 순서로 진행돼요. 최종 지급액은 실제 검수 결과에 따라 신청 시 예상가와 달라질 수 있어요.</p></div>
+
+    <div class="panel">
+      <div class="panel-title">새 매입 신청</div>
+      <div class="tickers" id="sellTickers"></div>
+      <div class="field"><div class="field-label">자가진단 등급 (실제 등급은 검수 후 확정돼요)</div><div class="seg seg-4" id="sellGradeSeg"></div></div>
+      <div class="field">
+        <div class="field-label">상태 메모 (선택)</div>
+        <textarea id="sellNote" class="auth-input" style="width:100%; min-height:60px; resize:vertical; font-family:var(--font-body); font-size:13px;" placeholder="예: 박스 있음, 배터리 상태 양호, 좌측 유닛에 미세 스크래치"></textarea>
+      </div>
+      <label style="display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--ink-muted); margin-bottom:14px;">
+        <input type="checkbox" id="sellFastTrack"> 🚀 빠른처리 신청 (관리자가 우선 검수해요, <span id="fastTrackFeeLabel">수수료 별도</span>)
+      </label>
+      <div class="stock-line" id="sellEstimateLine" style="margin-bottom:14px;"></div>
+      <button class="action-btn mint" onclick="submitSellRequest()">매입 신청하기</button>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">내 매입 신청 내역</div>
+      <div id="sellRequestList"></div>
+    </div>
+  </section>
+
+  <section class="view" id="view-deposit">
+    <div class="pagehead"><h1>잔액 충전</h1><p id="depositSubtitle">계좌이체로 충전해요</p></div>
+
+    <div class="panel plus-panel">
+      <div class="panel-title">🌱 콩나물 플러스 <span class="plus-badge">PLUS</span></div>
+      <div id="plusPanel"></div>
+    </div>
+
+    <div class="panel" id="cardPaymentPanel" style="display:none;">
+      <div class="panel-title">카드 · 간편결제로 충전 <span style="font-weight:400; color:var(--ink-faint); text-transform:none; font-size:10.5px;">토스페이먼츠</span></div>
+      <div class="field">
+        <div class="field-label">충전할 금액 (1,000원 ~ 5,000,000원)</div>
+        <div class="numwrap"><span>₩</span><input type="number" id="pgAmount" class="auth-input" style="padding-left:26px;" placeholder="50000" step="1000"></div>
+      </div>
+      <button class="action-btn mint" onclick="startPgPayment()">카드로 결제하기</button>
+      <div class="auth-note">테스트 키로 연동돼 있어요. 실제 결제는 일어나지 않아요 (app.py에서 TOSS_CLIENT_KEY/TOSS_SECRET_KEY를 본인 상점 키로 교체하면 실결제로 전환돼요).</div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">현재 입금 계좌 (계좌이체)</div>
+      <div id="depositAccountBox" class="ext-ref"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">결제 비밀번호</div>
+      <p style="font-size:12px; color:var(--ink-muted); margin-bottom:10px;" id="pinStatusLine">확인 중...</p>
+      <div class="field">
+        <input class="auth-input" id="pinInput" maxlength="6" placeholder="숫자 6자리" style="max-width:160px;">
+      </div>
+      <button class="mini-btn" onclick="savePin()">저장</button>
+      <div class="auth-note">구매·배송신청 시 확인해요. 계좌 비밀번호와 다른, 이 사이트 전용 번호예요.</div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">휴대폰 본인인증</div>
+      <p style="font-size:12px; color:var(--ink-muted); margin-bottom:10px;" id="phoneStatusLine">확인 중...</p>
+      <div class="field" id="phoneInputField">
+        <input class="auth-input" id="phoneInput" maxlength="11" placeholder="01012345678" style="max-width:180px;">
+        <button class="mini-btn" onclick="sendPhoneCode()" style="margin-top:8px;">인증코드 받기</button>
+      </div>
+      <div class="auth-note" id="phoneSentNote"></div>
+      <div class="field" id="phoneCodeField" style="display:none; margin-top:10px;">
+        <input class="auth-input" id="phoneCodeInput" maxlength="6" placeholder="인증코드 6자리" style="max-width:160px;">
+        <button class="mini-btn" onclick="verifyPhoneCode()" style="margin-top:8px;">확인</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">계좌이체 충전 요청 생성</div>
+      <div class="field">
+        <div class="field-label">충전할 금액 (10,000원 ~ 5,000,000원)</div>
+        <div class="numwrap"><span>₩</span><input type="number" id="depositAmount" class="auth-input" style="padding-left:26px;" placeholder="100000" step="10000"></div>
+      </div>
+      <button class="action-btn mint" onclick="submitDepositRequest()">충전 요청 생성</button>
+      <div class="auth-note" id="depositResultNote"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">내 충전 내역</div>
+      <div id="depositRequestList"></div>
+    </div>
+  </section>
+
+  <section class="view" id="view-withdraw">
+    <div class="pagehead"><h1>출금</h1><p>내 잔액을 실제 계좌로 받아요</p></div>
+    <div id="settlementDateBanner"></div>
+
+    <div class="panel">
+      <div class="panel-title">출금 방식</div>
+      <div class="seg seg-2" id="withdrawPrioritySeg"></div>
+      <div class="auth-note" id="withdrawFeeNote" style="margin-top:10px;"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">출금 요청</div>
+      <div class="field">
+        <div class="field-label">출금할 금액 (10,000원 ~ 5,000,000원)</div>
+        <div class="numwrap"><span>₩</span><input type="number" id="withdrawAmount" class="auth-input" style="padding-left:26px;" placeholder="100000" step="10000"></div>
+      </div>
+      <div class="field"><div class="field-label">입금받을 은행</div><input class="auth-input" id="withdrawBank" placeholder="예: 국민은행"></div>
+      <div class="field"><div class="field-label">계좌번호</div><input class="auth-input" id="withdrawAccount" placeholder="예: 123456-78-901234"></div>
+      <div class="field"><div class="field-label">예금주</div><input class="auth-input" id="withdrawHolder" placeholder="본인 명의여야 해요"></div>
+      <div class="stock-line" id="withdrawTotalLine" style="margin-bottom:14px;"></div>
+      <button class="action-btn red" onclick="submitWithdraw()">출금 신청하기</button>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">내 출금 내역</div>
+      <div id="withdrawRequestList"></div>
+    </div>
+  </section>
+
+  <section class="view" id="view-portfolio">
+    <div class="pagehead"><h1>내 보관함</h1><p>보관 중인 아이템과 평가금액을 확인해요</p></div>
+    <div class="port-summary">
+      <div class="stat-card"><div class="v" id="portCount">0개</div><div class="l">보유 수량</div></div>
+      <div class="stat-card"><div class="v" id="portValue">₩0</div><div class="l">현재 평가금액</div></div>
+      <div class="stat-card"><div class="v" id="portPL">₩0</div><div class="l">평가손익</div></div>
+    </div>
+    <div class="panel" id="portfolioPanel"></div>
+  </section>
+
+  <section class="view" id="view-notice">
+    <div class="pagehead"><h1>공지사항</h1><p>콩나물 운영 소식을 알려드려요</p></div>
+    <div class="panel" id="noticeList"></div>
+  </section>
+
+  <section class="view" id="view-guide">
+    <div class="pagehead"><h1>이용 가이드</h1><p>콩나물을 처음 쓰신다면 여기부터 읽어보세요</p></div>
+    <div id="guideJumpNav" class="guide-jumpnav"></div>
+
+    <div class="panel">
+      <div class="panel-title">📦 등급은 어떻게 매겨지나요?</div>
+      <table class="grade-table">
+        <thead><tr><th>등급</th><th>기준</th></tr></thead>
+        <tbody>
+          <tr><td><span class="grade-badge">S급</span></td><td>사용감이 거의 없어요 (미개봉급)</td></tr>
+          <tr><td><span class="grade-badge">A급</span></td><td>사용감이 경미해요</td></tr>
+          <tr><td><span class="grade-badge">B급</span></td><td>스크래치 등 사용 흔적이 눈에 보여요</td></tr>
+          <tr><td><span class="grade-badge">C급</span></td><td>기능이나 외관에 하자가 있어요</td></tr>
+        </tbody>
+      </table>
+      <div class="note">등급이 높을수록 가격도 높아요. 매입신청 시 직접 고르는 등급은 "자가진단"이고,
+      실제 지급 등급은 콩나물이 실물을 받아 검수한 뒤 최종 확정돼요 (달라질 수 있어요).</div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">🛒 구매는 어떻게 하나요?</div>
+      <div class="note" style="margin-top:0;">
+        "구매하기" 탭에서 원하는 모델·등급을 고르고 구매하면 끝이에요. 받는 방법은 두 가지예요.<br><br>
+        <b style="color:var(--ink);">① 보관함에 보관</b> — 지금 당장 배송받지 않고 콩나물이 대신 보관해줘요.
+        나중에 바로 되팔거나(즉시매도), 원할 때 배송받을 수 있어요.<br>
+        <b style="color:var(--ink);">② 바로 배송</b> — 결제 즉시 배송 신청까지 한 번에 끝나요.
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">📮 판매(매입신청)는 어떻게 하나요?</div>
+      <div class="note" style="margin-top:0;">
+        가지고 계신 에어팟을 파는 절차예요. 순서대로 진행돼요.<br><br>
+        <b style="color:var(--ink);">1. 신청</b> — 모델·자가진단 등급을 고르고 매입 신청해요 (이 시점 가격은 "예상가"예요)<br>
+        <b style="color:var(--ink);">2. 배송</b> — 안내되는 주소로 실물을 보내주세요<br>
+        <b style="color:var(--ink);">3. 수령확인</b> — 콩나물이 실물을 받으면 상태가 바뀌어요<br>
+        <b style="color:var(--ink);">4. 검수</b> — 실제 상태를 보고 최종 등급을 확정해요 (예상가와 달라질 수 있어요)<br>
+        <b style="color:var(--ink);">5. 정산</b> — 확정된 금액이 잔액으로 들어와요<br><br>
+        🚀 급하게 처리해야 한다면 신청 시 "빠른처리"를 선택하세요. 수수료가 붙는 대신 관리자가
+        우선순위로 검수해요 (콩나물 플러스 회원은 무료예요).
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">🗄️ 보관함 · 보관료</div>
+      <div class="note" style="margin-top:0;" id="storageGuideLine">불러오는 중...</div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">🏅 단골 등급 — 브론즈가 정확히 뭔가요?</div>
+      <div class="note" style="margin-top:0;">
+        <b style="color:var(--ink);">브론즈는 "아직 등급이 없는 상태"가 아니라, 모든 사람이 시작하는 기본 등급이에요.</b>
+        거래(구매+판매 합산) 완료 횟수에 따라 자동으로 승급되고, 등급이 높을수록 매입·구매 가격에
+        스프레드 할인이 붙어요 (더 유리한 가격으로 사고팔 수 있어요). 새로 가입하면 누구나
+        브론즈부터 시작하고, 할인은 없지만 그 외엔 아무 불이익도 없어요 — 그냥 "다음 등급까지
+        거래가 더 필요하다"는 뜻이에요.
+      </div>
+      <table class="grade-table" style="margin-top:10px;">
+        <thead><tr><th>등급</th><th>조건(누적 거래횟수)</th><th>혜택</th></tr></thead>
+        <tbody>
+          <tr><td><b style="color:#B08D57;">브론즈</b></td><td>0~9회 (누구나 시작)</td><td>추가 할인 없음</td></tr>
+          <tr><td><b style="color:#9AA5B1;">실버</b></td><td>10회 이상</td><td>스프레드 0.3%p 할인</td></tr>
+          <tr><td><b style="color:#D4A017;">골드</b></td><td>30회 이상</td><td>스프레드 0.6%p 할인</td></tr>
+          <tr><td><b style="color:#2E9E44;">플래티넘</b></td><td>60회 이상</td><td>스프레드 1.0%p 할인</td></tr>
+        </tbody>
+      </table>
+      <div class="note">등급은 자동으로 매겨지고 절대 내려가지 않아요 (누적 거래횟수 기준이라). 상단
+      지갑 옆에 지금 내 등급 배지가 항상 떠 있어요.</div>
+    </div>
+
+    <div class="panel plus-panel">
+      <div class="panel-title">🌱 콩나물 플러스 <span class="plus-badge">PLUS</span></div>
+      <div class="note" style="margin-top:0;" id="plusGuideLine">불러오는 중...</div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">🔒 결제 비밀번호 · 휴대폰 인증은 왜 필요한가요?</div>
+      <div class="note" style="margin-top:0;">
+        <b style="color:var(--ink);">결제 비밀번호(PIN)</b>는 구매·배송신청·선물하기처럼 돈이 나가는
+        순간에 한 번 더 확인하는 숫자 6자리예요. 계좌 비밀번호와 다른, 이 사이트 전용 번호라 안전해요.
+        설정 안 해도 이용은 가능하지만, 설정해두면 다른 사람이 내 계정에 들어와도 함부로 결제를
+        못 해요.<br><br>
+        <b style="color:var(--ink);">휴대폰 본인인증</b>은 필수는 아니지만, 인증해두면 계정이 진짜
+        본인 것이라는 게 확인돼서 사기 방지에 도움이 돼요. 둘 다 "충전" 탭에서 설정할 수 있어요.
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">📜 정품 인증서</div>
+      <div class="note" style="margin-top:0;" id="certGuideLine">불러오는 중...</div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">🔔 찜하기 · 가격알림 · 예약</div>
+      <div class="note" style="margin-top:0;">
+        <b style="color:var(--ink);">🤍 찜하기</b> — 품절된 상품을 찜해두면 재입고되는 순간 알려드려요.<br>
+        <b style="color:var(--ink);">📉 가격알림</b> — 원하는 가격 이하로 떨어지면 알려드려요.<br>
+        <b style="color:var(--ink);">🔔 예약 알림</b> — 관리자가 특정 상품의 판매 시작 시간을 정해두는
+        "드랍" 상품에만 떠요. 미리 눌러두면 판매가 시작될 때 알려드려요.<br><br>
+        모두 "구매하기" 탭의 상품별 버튼으로 설정해요.
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">🎁 선물하기</div>
+      <div class="note" style="margin-top:0;" id="giftGuideLine">불러오는 중...</div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">⭐ 리뷰</div>
+      <div class="note" style="margin-top:0;">
+        실제로 구매를 완료한 상품에만 리뷰를 남길 수 있어요. 공개되는 목록에는 이메일이
+        <code>re***@example.com</code>처럼 일부만 표시돼요.
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">💳 충전 · 🏦 출금</div>
+      <div class="note" style="margin-top:0;" id="depositWithdrawGuideLine">불러오는 중...</div>
+    </div>
+  </section>
+
+
+  <section class="view" id="view-reviews">
+    <div class="pagehead"><h1>리뷰</h1><p>실제 구매를 완료한 사람만 남길 수 있는 후기예요</p></div>
+    <div class="panel">
+      <div class="panel-title">평균 평점</div>
+      <div id="reviewSummary" style="text-align:center; padding:6px 0;"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">내 구매내역 — 리뷰 남기기</div>
+      <div id="myOrdersList"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">전체 리뷰</div>
+      <div id="reviewList"></div>
+    </div>
+  </section>
+
+  <section class="view" id="view-terms">
+    <div class="pagehead"><h1>이용약관</h1><p></p></div>
+    <div class="panel">
+      <div class="note" style="font-size:12.5px; line-height:1.8;">
+        <b style="color:var(--ink); font-size:13px;">⚠️ 안내</b><br>
+        아래는 전자상거래 서비스에서 흔히 쓰는 조항을 정리한 <b>템플릿</b>이에요. 실제 서비스 운영 전에는
+        반드시 변호사 등 법률 전문가의 검토를 받으세요. 이 내용은 법률 자문이 아니에요.<br><br>
+        <b style="color:var(--ink);">제1조 (목적)</b><br>
+        이 약관은 콩나물(이하 "회사")이 운영하는 서비스를 이용함에 있어 회사와 회원 간의 권리·의무 및 책임사항을 규정함을 목적으로 합니다.<br><br>
+        <b style="color:var(--ink);">제2조 (회원가입 및 계정)</b><br>
+        회원은 이메일 인증을 완료해야 가입할 수 있으며, 타인의 정보를 도용하거나 허위 정보를 등록해서는 안 됩니다.<br><br>
+        <b style="color:var(--ink);">제3조 (매입·판매 거래)</b><br>
+        회사는 검수를 거친 상품에 대해 자체 기준으로 등급을 산정하며, 최종 매입가는 검수 결과에 따라 신청 시 예상가와 달라질 수 있습니다. 구매한 상품의 보관에는 회사가 정한 보관료 정책이 적용됩니다.<br><br>
+        <b style="color:var(--ink);">제4조 (결제 및 환불)</b><br>
+        계좌이체 또는 카드/간편결제로 잔액을 충전할 수 있으며, 충전된 잔액의 환불은 회사의 환불 정책에 따릅니다.<br><br>
+        <b style="color:var(--ink);">제5조 (회사의 의무)</b><br>
+        회사는 관련 법령과 이 약관이 정하는 바에 따라 지속적이고 안정적으로 서비스를 제공하기 위해 노력합니다.<br><br>
+        <b style="color:var(--ink);">제6조 (면책)</b><br>
+        천재지변 등 불가항력으로 인한 서비스 중단에 대해 회사는 책임을 지지 않습니다.<br><br>
+        <span style="color:var(--ink-faint);">시행일: 2026년 7월 1일 (예시)</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="view" id="view-privacy">
+    <div class="pagehead"><h1>개인정보처리방침</h1><p></p></div>
+    <div class="panel">
+      <div class="note" style="font-size:12.5px; line-height:1.8;">
+        <b style="color:var(--ink); font-size:13px;">⚠️ 안내</b><br>
+        아래는 <b>템플릿</b>이에요. 실제 수집 항목·이용 목적·보관 기간은 서비스 실제 구현에 맞춰 반드시 다시 작성하고, 개인정보보호위원회 표준지침 및 법률 검토를 거쳐야 해요.<br><br>
+        <b style="color:var(--ink);">1. 수집하는 개인정보 항목</b><br>
+        이메일, 비밀번호(암호화 저장), 결제 비밀번호(암호화 저장), 계좌이체 시 입금자명, 거래 내역<br><br>
+        <b style="color:var(--ink);">2. 개인정보의 수집 및 이용 목적</b><br>
+        회원 가입 및 관리, 거래(매입·판매) 처리, 잔액 충전 확인, 부정 이용 방지, 공지사항 전달<br><br>
+        <b style="color:var(--ink);">3. 개인정보의 보유 및 이용 기간</b><br>
+        회원 탈퇴 시까지 보유하며, 관계 법령에 따라 보존이 필요한 거래 기록은 해당 법령이 정한 기간 동안 보관합니다.<br><br>
+        <b style="color:var(--ink);">4. 개인정보의 제3자 제공</b><br>
+        회사는 이용자의 동의 없이 개인정보를 외부에 제공하지 않습니다.<br><br>
+        <b style="color:var(--ink);">5. 이용자의 권리</b><br>
+        이용자는 언제든지 자신의 개인정보 조회·수정·삭제를 요청할 수 있습니다.<br><br>
+        <span style="color:var(--ink-faint);">시행일: 2026년 7월 1일 (예시)</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="view" id="view-bizinfo">
+    <div class="pagehead"><h1>사업자 정보</h1><p></p></div>
+    <div class="panel" id="bizInfoPanel"></div>
+  </section>
+
+  <section class="view" id="view-verifycert">
+    <div class="pagehead"><h1>인증서 확인</h1><p>정품 검수 인증서에 적힌 코드를 입력하면 진위를 확인할 수 있어요 (로그인 불필요)</p></div>
+    <div class="panel">
+      <div class="field-label">인증코드</div>
+      <div style="display:flex; gap:8px;">
+        <input class="auth-input" id="certVerifyInput" placeholder="예: KN-8CFC0062" style="flex:1;">
+        <button class="mini-btn" onclick="verifyCertificate()">확인</button>
+      </div>
+    </div>
+    <div class="panel" id="certVerifyResult" style="display:none;"></div>
+  </section>
+</div>
+
+<footer id="siteFooter" style="max-width:1080px; margin:20px auto 0; padding:20px 16px 30px; font-size:11.5px; color:var(--ink-faint); line-height:1.9; border-top:1px solid var(--border-soft);">
+  <div id="footerBizLine">불러오는 중...</div>
+  <div style="margin-top:6px;">
+    <a href="javascript:void(0)" onclick="goToView('terms')" style="color:var(--ink-muted); text-decoration:underline;">이용약관</a> ·
+    <a href="javascript:void(0)" onclick="goToView('privacy')" style="color:var(--ink-muted); text-decoration:underline;">개인정보처리방침</a> ·
+    <a href="javascript:void(0)" onclick="goToView('bizinfo')" style="color:var(--ink-muted); text-decoration:underline;">사업자정보</a> ·
+    <a href="javascript:void(0)" onclick="goToView('verifycert')" style="color:var(--ink-muted); text-decoration:underline;">인증서 확인</a>
+  </div>
+</footer>
+
+<div id="toastbox"></div>
+
+<script>
+const API = '';
+let STATE = null;
+let selectedModel = 'pro2', selectedGrade = 'A', deliveryMode = 'storage', currentView = 'market';
+let tradeRegion = 'normal';
+let deliveryFlowId = null, deliveryFlowRegion = 'normal';
+let authTab = 'signup', codeSent = false;
+let selectedSellModel = 'pro2', selectedSellGrade = 'A';
+let sellRequests = [], depositAccount = null, depositRequests = [], reservations = [];
+const GRADES = [
+  {key:'S', label:'S급', sub:'사용감 거의없음'}, {key:'A', label:'A급', sub:'경미한 사용감'},
+  {key:'B', label:'B급', sub:'스크래치 있음'}, {key:'C', label:'C급', sub:'기능/외관 하자'}
+];
+const NAV = [
+  {key:'market',label:'마켓',icon:'📊'}, {key:'trade',label:'구매하기',icon:'🛒'}, {key:'sell',label:'매입신청',icon:'📮'},
+  {key:'deposit',label:'충전',icon:'💳'}, {key:'withdraw',label:'출금',icon:'🏦'}, {key:'portfolio',label:'보관함',icon:'🗄️'}, {key:'reviews',label:'리뷰',icon:'⭐'},
+  {key:'notice',label:'공지사항',icon:'📢'}, {key:'guide',label:'가이드',icon:'📖'}
+];
+
+function won(n){ return '₩' + Math.round(n).toLocaleString('ko-KR'); }
+
+function toast(msg){
+  const box = document.getElementById('toastbox');
+  const el = document.createElement('div'); el.className='toast'; el.textContent = msg;
+  box.appendChild(el);
+  requestAnimationFrame(()=> el.classList.add('show'));
+  setTimeout(()=>{ el.classList.remove('show'); setTimeout(()=> el.remove(), 300); }, 2600);
+}
+
+async function api(path, opts){
+  opts = opts || {};
+  if(opts.method && opts.method !== 'GET'){
+    opts.headers = opts.headers || {};
+    if(STATE && STATE.csrf_token) opts.headers['X-CSRF-Token'] = STATE.csrf_token;
+  }
+  try{
+    const res = await fetch(API+path, opts);
+    const data = await res.json();
+    document.getElementById('connBadge').innerHTML = '<span class="dot"></span>서버 연결됨';
+    document.getElementById('connBadge').className = 'live-tag';
+    if(!res.ok){ toast(data.error || '오류가 발생했어요'); return null; }
+    return data;
+  }catch(e){
+    document.getElementById('connBadge').innerHTML = '서버 연결 실패';
+    toast('백엔드 서버에 연결할 수 없어요 (python app.py 실행했는지 확인하세요)');
+    return null;
+  }
+}
+
+let hasPin = false;
+async function refresh(){
+  const data = await api('/api/state');
+  if(data){
+    STATE = data;
+    if(STATE.user){ const p = await api('/api/auth/pin-status'); hasPin = p ? p.has_pin : false; connectSSE(); } else { hasPin = false; disconnectSSE(); }
+    renderAll();
+  }
+}
+
+function goToView(key){
+  currentView = key;
+  if(key==='sell'){ loadSellRequests().then(renderAll); }
+  if(key==='deposit'){ loadDepositData().then(renderAll); }
+  if(key==='withdraw'){ loadWithdrawals().then(renderAll); }
+  if(key==='trade'){ Promise.all([loadReservations(), loadWishlist(), loadPriceAlerts()]).then(renderAll); }
+  if(key==='reviews'){ loadReviewsView().then(renderAll); }
+  renderAll();
+}
+
+function renderNav(){
+  const el = document.getElementById('navBtns'); el.innerHTML='';
+  NAV.forEach(n=>{
+    const b = document.createElement('button');
+    b.className = 'navbtn' + (currentView===n.key ? ' active':'');
+    b.textContent = n.label;
+    b.onclick = ()=> goToView(n.key);
+    el.appendChild(b);
+  });
+  const bel = document.getElementById('bottomNavBtns'); bel.innerHTML='';
+  NAV.forEach(n=>{
+    const b = document.createElement('button');
+    b.className = 'bottom-navbtn' + (currentView===n.key ? ' active':'');
+    b.innerHTML = `<span class="ic">${n.icon}</span><span>${n.label}</span>`;
+    b.onclick = ()=> goToView(n.key);
+    bel.appendChild(b);
+  });
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.getElementById('view-'+currentView).classList.add('active');
+}
+
+function miniSparkPath(arr){
+  const w=100,h=20, max=Math.max(...arr), min=Math.min(...arr);
+  return arr.map((v,i)=>{ const x=(i/(arr.length-1))*w; const y=h-((v-min)/((max-min)||1))*h; return x.toFixed(1)+','+y.toFixed(1); }).join(' ');
+}
+function sparkPath(arr, forFill=false){
+  const w=300, h=100, max=Math.max(...arr), min=Math.min(...arr);
+  const pts = arr.map((v,i)=>{
+    const x = (i/(arr.length-1))*w;
+    const y = h - ((v-min)/((max-min)||1))*h*0.85 - h*0.08;
+    return [+x.toFixed(1), +y.toFixed(1)];
+  });
+  if(forFill){
+    const line = pts.map((p,i)=>(i===0?`M ${p[0]},${p[1]}`:`L ${p[0]},${p[1]}`)).join(' ');
+    return `${line} L ${w},${h} L 0,${h} Z`;
+  }
+  return pts.map((p,i)=>(i===0?`M ${p[0]},${p[1]}`:`L ${p[0]},${p[1]}`)).join(' ');
+}
+
+const TIER_META = {
+  '브론즈': {color:'#B08D57', icon:'🥉', floor:0},
+  '실버':   {color:'#8A94A3', icon:'🥈', floor:10},
+  '골드':   {color:'#C99A1E', icon:'🥇', floor:30},
+  '플래티넘': {color:'#2E9E44', icon:'💎', floor:60},
+};
+const TIER_CEIL = {'브론즈':10, '실버':30, '골드':60, '플래티넘':null};
+function renderWallet(){
+  document.getElementById('walletBox').style.display = STATE.user ? '' : 'none';
+  if(STATE.user) document.getElementById('walletVal').textContent = won(STATE.wallet);
+  const tierBox = document.getElementById('tierBox');
+  if(STATE.user && STATE.user.tier){
+    const t = STATE.user.tier;
+    const meta = TIER_META[t.tier] || TIER_META['브론즈'];
+    const ceil = TIER_CEIL[t.tier];
+    const pct = ceil ? Math.min(100, Math.round((t.trade_count - meta.floor) / (ceil - meta.floor) * 100)) : 100;
+    tierBox.style.display = '';
+    tierBox.style.borderColor = meta.color + '55';
+    tierBox.onclick = (e)=>{ e.stopPropagation(); tierBox.classList.toggle('open'); };
+    tierBox.innerHTML = `
+      <span class="ic">${meta.icon}</span><span class="name" style="color:${meta.color};">${t.tier}</span>
+      <div class="tier-pop">
+        <div class="title">누적 거래 ${t.trade_count}회${t.plus && t.plus.active ? ' · 🌱플러스' : ''}</div>
+        <div class="tier-track"><div class="fill" style="width:${pct}%; background:${meta.color};"></div></div>
+        <div class="sub">${t.next_tier ? `다음 등급(${t.next_tier.name})까지 ${t.next_tier.need}회 남았어요` : '최고 등급이에요! 🎉'}</div>
+        <div class="sub" style="margin-top:4px;">현재 스프레드 할인 ${(t.discount*100).toFixed(1)}%p</div>
+      </div>`;
+  } else {
+    tierBox.style.display = 'none';
+  }
+}
+
+function renderAuthBox(){
+  const el = document.getElementById('authBox');
+  if(STATE.user){
+    el.innerHTML = `<div class="user-chip"><b>${STATE.user.email}</b><button class="mini-btn" onclick="doLogout()">로그아웃</button></div>`;
+  } else {
+    el.innerHTML = `<button class="reset-btn" onclick="openAuth()">로그인 / 회원가입</button>`;
+  }
+}
+
+function openAuth(){ document.getElementById('authOverlay').style.display='flex'; }
+function closeAuth(){ document.getElementById('authOverlay').style.display='none'; }
+function switchAuthTab(tab){
+  authTab = tab;
+  document.getElementById('authTabSignup').className = tab==='signup' ? 'on' : '';
+  document.getElementById('authTabLogin').className = tab==='login' ? 'on' : '';
+  document.getElementById('authSignupForm').style.display = tab==='signup' ? '' : 'none';
+  document.getElementById('authLoginForm').style.display = tab==='login' ? '' : 'none';
+}
+
+async function sendCode(){
+  const email = document.getElementById('suEmail').value.trim();
+  if(!email){ toast('이메일을 입력해주세요'); return; }
+  const r = await api('/api/auth/send-code', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email})});
+  if(r){
+    codeSent = true;
+    const note = document.getElementById('codeSentNote');
+    if(r.mode==='dev_mode'){
+      note.textContent = `[DEV MODE] 실제 메일함 대신 코드가 바로 표시돼요: ${r.dev_code}`;
+      document.getElementById('suCode').value = r.dev_code; // 로컬 테스트 편의상 자동 입력
+    } else {
+      note.textContent = `${email} 로 인증코드를 보냈어요. ${r.expires_in_minutes}분 이내에 입력해주세요.`;
+    }
+  }
+}
+
+function toggleAgreeAll(){
+  const all = document.getElementById('agreeAll').checked;
+  ['agreeTerms','agreePrivacy','agreeMarketing'].forEach(id=> document.getElementById(id).checked = all);
+}
+function syncAgreeAll(){
+  const ids = ['agreeTerms','agreePrivacy','agreeMarketing'];
+  document.getElementById('agreeAll').checked = ids.every(id=> document.getElementById(id).checked);
+}
+async function doSignup(){
+  const email = document.getElementById('suEmail').value.trim();
+  const code = document.getElementById('suCode').value.trim();
+  const password = document.getElementById('suPassword').value;
+  if(!codeSent){ toast('먼저 인증코드를 받아주세요'); return; }
+  if(!document.getElementById('agreeTerms').checked || !document.getElementById('agreePrivacy').checked){
+    toast('이용약관과 개인정보처리방침에 동의해주세요'); return;
+  }
+  const marketing = document.getElementById('agreeMarketing').checked;
+  const v = await api('/api/auth/verify-code', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email, code})});
+  if(!v) return;
+  const r = await api('/api/auth/signup', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({email, password, agree_terms:true, agree_privacy:true, agree_marketing:marketing})});
+  if(r){ toast('회원가입 완료! 자동으로 로그인됐어요'); closeAuth(); await refresh(); }
+}
+
+async function doLogin(){
+  const email = document.getElementById('liEmail').value.trim();
+  const password = document.getElementById('liPassword').value;
+  const r = await api('/api/auth/login', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email, password})});
+  if(r){ toast('로그인됐어요'); closeAuth(); await refresh(); }
+}
+
+async function doLogout(){
+  await api('/api/auth/logout', {method:'POST'});
+  toast('로그아웃됐어요');
+  await refresh();
+}
+
+function requireLogin(){
+  if(!STATE.user){ toast('로그인이 필요해요'); openAuth(); return false; }
+  return true;
+}
+
+let searchQuery = '';
+function onSearchInput(val){
+  searchQuery = val.trim().toLowerCase();
+  const a = document.getElementById('marketSearchTop'), b = document.getElementById('marketSearch');
+  if(a && a.value!==val) a.value = val;
+  if(b && b.value!==val) b.value = val;
+  renderAll();
+}
+function matchesSearch(m){
+  if(!searchQuery) return true;
+  return m.name.toLowerCase().includes(searchQuery) || m.code.toLowerCase().includes(searchQuery);
+}
+
+function renderMarketTickers(){
+  const el = document.getElementById('marketTickers'); el.innerHTML='';
+  const entries = Object.entries(STATE.models).filter(([,m])=>m.is_active && matchesSearch(m));
+  if(entries.length===0){ el.innerHTML = '<div class="empty-state"><span class="glyph">🔍</span>검색 결과가 없어요</div>'; return; }
+  entries.forEach(([key,m])=>{
+    const div = document.createElement('div');
+    div.className = 'ticker'+(selectedModel===key?' active':'');
+    div.innerHTML = `<div class="ticker-code">${m.code}</div><div class="ticker-name">${m.name}</div>
+      <div class="ticker-row"><span class="ticker-price">${won(m.mid)}</span></div>
+      <svg viewBox="0 0 100 20" preserveAspectRatio="none"><polyline points="${miniSparkPath(m.history)}" fill="none" stroke="${selectedModel===key?'#2E9E44':'#C5DCC5'}" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`;
+    div.onclick = ()=>{ selectedModel=key; renderAll(); };
+    el.appendChild(div);
+  });
+}
+
+function renderChart(){
+  const m = STATE.models[selectedModel];
+  document.getElementById('chartTitle').textContent = m.name + ' 시세';
+  document.getElementById('chartSvg').innerHTML = `
+    <defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#2E9E44" stop-opacity="0.18"/><stop offset="100%" stop-color="#2E9E44" stop-opacity="0.01"/></linearGradient></defs>
+    <path d="${sparkPath(m.history, true)}" fill="url(#cg)" stroke="none"/>
+    <path d="${sparkPath(m.history)}" fill="none" stroke="#2E9E44" stroke-width="2.5" vector-effect="non-scaling-stroke"/>
+  `;
+  document.getElementById('dockBuy').textContent = won(m.prices.A.buy);
+  document.getElementById('dockSell').textContent = won(m.prices.A.sell);
+  document.getElementById('spreadLine').textContent = `실시간 시세 기준으로 계산돼요 (검수·보증 비용 포함, A급)`;
+  document.getElementById('countdownText').textContent = `다음 갱신 ${STATE.seconds_to_next_tick}초`;
+  document.getElementById('tickSecLabel').textContent = STATE.tick_seconds;
+  const intPct = m.internal_weight_pct, extPct = 100-intPct;
+  document.getElementById('extRefBox').innerHTML = `
+    <div class="row1"><span class="lbl">외부 플랫폼 참고 시세 (A급 환산)</span><span class="val">${won(m.external_ref.avg)}</span></div>
+    <div class="src">${m.external_ref.note}</div>
+    <div class="weight-track"><div class="weight-fill-int" style="width:${intPct}%"></div><div class="weight-fill-ext" style="width:${extPct}%"></div></div>
+    <div class="weight-legend"><span>자체 거래 반영 ${intPct}%</span><span>외부 시세 반영 ${extPct}%</span></div>`;
+}
+
+function renderFeed(){
+  const el = document.getElementById('feedList');
+  if(STATE.feed.length===0){ el.innerHTML='<div class="empty-state"><span class="glyph">🌱</span>아직 체결된 거래가 없어요</div>'; return; }
+  el.innerHTML = STATE.feed.map(f=>{
+    return `<div class="feed-item"><span><span class="tag ${f.side}">${STATE.models[f.model_key].code}</span>${f.grade}급 · ${f.label}</span>
+      <span>${won(f.price)}</span><span class="time">${new Date(f.ts).toLocaleTimeString('ko-KR')}</span></div>`;
+  }).join('');
+}
+
+function renderStats(){
+  document.getElementById('statInspected').textContent = STATE.stats.total_inspected.toLocaleString('ko-KR');
+  document.getElementById('statToday').textContent = STATE.stats.today_trades.toLocaleString('ko-KR');
+  let totalStock=0; Object.values(STATE.models).forEach(m=> Object.values(m.stock).forEach(q=> totalStock+=q));
+  document.getElementById('statStock').textContent = totalStock.toLocaleString('ko-KR');
+}
+
+function getDropStatus(m){
+  const now = Date.now();
+  if(!m.drop_start && !m.drop_end) return {state:'none'};
+  const start = m.drop_start ? new Date(m.drop_start).getTime() : null;
+  const end = m.drop_end ? new Date(m.drop_end).getTime() : null;
+  if(start && now < start) return {state:'wait', start, end};
+  if(end && now > end) return {state:'ended', start, end};
+  return {state:'live', start, end};
+}
+function fmtCountdown(ms){
+  if(ms<0) ms=0;
+  const s = Math.floor(ms/1000);
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+}
+function renderDropBanner(info){
+  const el = document.getElementById('dropBanner');
+  if(info.state==='none'){ el.innerHTML=''; return; }
+  if(info.state==='wait'){
+    el.innerHTML = `<div class="drop-banner wait">⏰ 판매 시작까지<b id="dropCountdown">${fmtCountdown(info.start-Date.now())}</b></div>`;
+  } else if(info.state==='live' && info.end){
+    el.innerHTML = `<div class="drop-banner live">🟢 지금 구매 가능! 종료까지<b id="dropCountdown">${fmtCountdown(info.end-Date.now())}</b></div>`;
+  } else if(info.state==='live'){
+    el.innerHTML = `<div class="drop-banner live">🟢 지금 구매 가능해요</div>`;
+  } else if(info.state==='ended'){
+    el.innerHTML = `<div class="drop-banner ended">⏹ 이 상품의 판매 시간이 종료됐어요</div>`;
+  }
+}
+async function loadReservations(){
+  if(!STATE || !STATE.user){ reservations=[]; return; }
+  const r = await api('/api/my-reservations');
+  reservations = r ? r.reservations : [];
+}
+async function toggleReserve(){
+  if(!requireLogin()) return;
+  const isReserved = reservations.some(r=>r.model_key===selectedModel && r.grade===selectedGrade);
+  if(isReserved){
+    await api(`/api/reserve/${selectedModel}/${selectedGrade}`, {method:'DELETE'});
+    toast('예약을 취소했어요');
+  } else {
+    await api('/api/reserve', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({model:selectedModel, grade:selectedGrade})});
+    toast('예약 완료! 판매가 시작되면 이 화면에서 바로 구매할 수 있어요');
+  }
+  await loadReservations();
+  renderTradeTickers();
+}
+
+// ---------------- 찜하기 ----------------
+let wishlist = [];
+async function loadWishlist(){
+  if(!STATE || !STATE.user){ wishlist = []; return; }
+  const r = await api('/api/my-wishlist');
+  wishlist = r ? r.wishlist : [];
+}
+async function toggleWishlist(){
+  if(!requireLogin()) return;
+  const isWished = wishlist.some(w=>w.model_key===selectedModel && w.grade===selectedGrade);
+  if(isWished){
+    await api(`/api/wishlist/${selectedModel}/${selectedGrade}`, {method:'DELETE'});
+    toast('찜을 취소했어요');
+  } else {
+    await api('/api/wishlist', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({model:selectedModel, grade:selectedGrade})});
+    toast('찜했어요! 재입고되면 알려드려요');
+  }
+  await loadWishlist();
+  renderTradeTickers();
+}
+
+function toggleGiftForm(){
+  if(!requireLogin()) return;
+  const form = document.getElementById('giftForm');
+  const showing = form.style.display !== 'none';
+  form.style.display = showing ? 'none' : '';
+  if(!showing){
+    const price = STATE.models[selectedModel].prices[selectedGrade].sell;
+    const fee = STATE.fees.gift_service_fee;
+    document.getElementById('giftFeeLine').textContent = `상품가 ${won(price)} + 포장/서비스료 ${won(fee)} = 총 ${won(price+fee)}`;
+  }
+}
+async function sendGift(){
+  const to_email = document.getElementById('giftToEmail').value.trim();
+  const message = document.getElementById('giftMessage').value;
+  if(!to_email){ toast('받는 분 이메일을 입력해주세요'); return; }
+  const pinResult = askPin();
+  if(!pinResult.ok) return;
+  const r = await api('/api/gift/send', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({model:selectedModel, grade:selectedGrade, to_email, message, pin:pinResult.pin})});
+  if(r){
+    toast(r.recipient_exists ? '선물을 바로 전달했어요! 🎁' : `아직 가입 안 한 분이에요. ${to_email} 님이 가입하면 자동으로 전달돼요 🎁`);
+    document.getElementById('giftToEmail').value=''; document.getElementById('giftMessage').value='';
+    document.getElementById('giftForm').style.display='none';
+    await refresh();
+  }
+}
+
+// ---------------- 가격 알림 ----------------
+let priceAlerts = [];
+async function loadPriceAlerts(){
+  if(!STATE || !STATE.user){ priceAlerts = []; return; }
+  const r = await api('/api/my-price-alerts');
+  priceAlerts = r ? r.alerts : [];
+}
+async function openPriceAlert(){
+  if(!requireLogin()) return;
+  const current = STATE.models[selectedModel].prices[selectedGrade].sell;
+  const input = prompt(`목표 가격을 입력하세요 (현재가 ${won(current)}). 이 가격 이하로 떨어지면 알려드려요.`, Math.round(current*0.9));
+  if(input===null) return;
+  const target = parseInt(input);
+  if(!target || target<=0){ toast('올바른 금액을 입력해주세요'); return; }
+  const r = await api('/api/price-alerts', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({model:selectedModel, grade:selectedGrade, target_price:target})});
+  if(r){ toast(`가격 알림 설정 완료 (${won(target)} 이하)`); await loadPriceAlerts(); renderTradeTickers(); }
+}
+async function deletePriceAlert(id){
+  await api(`/api/price-alerts/${id}`, {method:'DELETE'});
+  await loadPriceAlerts(); renderTradeTickers();
+}
+async function removeWishlistItem(model, grade){
+  await api(`/api/wishlist/${model}/${grade}`, {method:'DELETE'});
+  await loadWishlist(); renderTradeTickers();
+}
+function renderMyAlertsWishlist(){
+  const el = document.getElementById('myAlertsWishlist');
+  if(!el) return;
+  if(!STATE.user){ el.innerHTML = '<div class="empty-state"><span class="glyph">🔒</span>로그인하면 이용할 수 있어요</div>'; return; }
+  const activeAlerts = priceAlerts.filter(a=>!a.triggered);
+  let html = '';
+  if(activeAlerts.length===0 && wishlist.length===0){
+    html = '<div class="empty-state"><span class="glyph">🔔</span>등록한 가격알림·찜이 없어요</div>';
+  } else {
+    activeAlerts.forEach(a=>{
+      const m = STATE.models[a.model_key];
+      html += `<div class="port-row" style="grid-template-columns:1fr auto;">
+        <span>📉 ${m?m.name:a.model_key} ${a.grade}급 · ${won(a.target_price)} 이하</span>
+        <button class="mini-btn" onclick="deletePriceAlert(${a.id})">삭제</button>
+      </div>`;
+    });
+    wishlist.forEach(w=>{
+      const m = STATE.models[w.model_key];
+      html += `<div class="port-row" style="grid-template-columns:1fr auto;">
+        <span>🤍 ${m?m.name:w.model_key} ${w.grade}급 재입고 알림</span>
+        <button class="mini-btn" onclick="removeWishlistItem('${w.model_key}','${w.grade}')">삭제</button>
+      </div>`;
+    });
+  }
+  el.innerHTML = html;
+}
+
+// ---------------- 인기 상품 ----------------
+let popularItems = [];
+async function loadPopular(){
+  const r = await api('/api/popular');
+  popularItems = r ? r.popular : [];
+}
+function renderPopularBanner(){
+  const el = document.getElementById('popularBanner');
+  if(!el) return;
+  if(popularItems.length===0){ el.innerHTML=''; return; }
+  el.innerHTML = `<div class="announce-banner">🔥<span><b>이번 주 인기 상품</b>${popularItems.map((p,i)=>`${i+1}위 ${p.name}(${p.trade_count}건)`).join(' · ')}</span></div>`;
+}
+
+function renderTradeTickers(){
+  const el = document.getElementById('tradeTickers'); el.innerHTML='';
+  Object.entries(STATE.models).filter(([,m])=>m.is_active && matchesSearch(m)).forEach(([key,m])=>{
+    const div = document.createElement('div');
+    div.className = 'ticker'+(selectedModel===key?' active':'');
+    div.innerHTML = `<div class="ticker-code">${m.code}</div><div class="ticker-name">${m.name}</div><div class="ticker-row"><span class="ticker-price">${won(m.mid)}</span></div>`;
+    div.onclick = ()=>{ selectedModel=key; renderAll(); };
+    el.appendChild(div);
+  });
+  const gseg = document.getElementById('tradeGradeSeg'); gseg.innerHTML='';
+  GRADES.forEach(g=>{
+    const b = document.createElement('button');
+    b.className = selectedGrade===g.key?'on':'';
+    b.innerHTML = `${g.label}<small>${g.sub}</small>`;
+    b.onclick = ()=>{ selectedGrade=g.key; renderAll(); };
+    gseg.appendChild(b);
+  });
+  const dseg = document.getElementById('deliverySeg'); dseg.innerHTML='';
+  [{k:'storage',l:'보관하기',s:'즉시 재매도 가능'},{k:'delivery',l:'집으로 배송',s:'2~3일 내 발송'}].forEach(d=>{
+    const b = document.createElement('button');
+    b.className = deliveryMode===d.k?'on':'';
+    b.innerHTML = `${d.l}<small>${d.s}</small>`;
+    b.onclick = ()=>{ deliveryMode=d.k; renderAll(); };
+    dseg.appendChild(b);
+  });
+  const m = STATE.models[selectedModel];
+  const itemPrice = m.prices[selectedGrade].sell;
+  const regionField = document.getElementById('regionField');
+  let deliveryFee = 0;
+  if(deliveryMode==='delivery'){
+    regionField.style.display = '';
+    const rseg = document.getElementById('regionSeg'); rseg.innerHTML='';
+    [{k:'normal',l:'일반지역',s:'+₩0'},{k:'remote',l:'제주/도서산간',s:`+${won(STATE.fees.remote_surcharge)}`}].forEach(r=>{
+      const b = document.createElement('button');
+      b.className = tradeRegion===r.k?'on':'';
+      b.innerHTML = `${r.l}<small>${r.s}</small>`;
+      b.onclick = ()=>{ tradeRegion=r.k; renderAll(); };
+      rseg.appendChild(b);
+    });
+    deliveryFee = STATE.fees.delivery_base_fee + (tradeRegion==='remote'?STATE.fees.remote_surcharge:0);
+    document.getElementById('totalDueLine').textContent = `상품가 ${won(itemPrice)} + 배송비 ${won(deliveryFee)}(포장비 포함) = 결제 ${won(itemPrice+deliveryFee)}`;
+  } else {
+    regionField.style.display = 'none';
+    document.getElementById('totalDueLine').textContent = `보관 시 첫 ${STATE.fees.storage_free_days}일 무료, 이후 30일마다 ${won(STATE.fees.storage_fee_per_month)}`;
+  }
+  document.getElementById('buyPrice').textContent = won(itemPrice);
+  const stock = m.stock[selectedGrade] || 0;
+
+  const dropInfo = getDropStatus(m);
+  renderDropBanner(dropInfo);
+  const reserveBtn = document.getElementById('reserveBtn');
+  if(dropInfo.state === 'wait'){
+    reserveBtn.style.display = '';
+    const isReserved = reservations.some(r=>r.model_key===selectedModel && r.grade===selectedGrade);
+    reserveBtn.textContent = isReserved ? '🔔 예약됨 (취소하기)' : '🔔 예약 알림 받기';
+  } else {
+    reserveBtn.style.display = 'none';
+  }
+  const canBuyNow = dropInfo.state !== 'wait' && dropInfo.state !== 'ended';
+
+  document.getElementById('stockLine').textContent = !canBuyNow ? '' : (stock>0 ? `현재 재고 ${stock}개` : '일시 품절');
+  const buyBtn = document.getElementById('buyBtn');
+  buyBtn.disabled = stock<=0 || !canBuyNow;
+  buyBtn.textContent = !canBuyNow ? (dropInfo.state==='wait' ? '판매 시작 전' : '판매 종료') : (stock<=0 ? '품절' : '구매하기');
+
+  const wishBtn = document.getElementById('wishlistBtn');
+  const isWished = wishlist.some(w=>w.model_key===selectedModel && w.grade===selectedGrade);
+  wishBtn.textContent = isWished ? '❤️ 찜함' : '🤍 찜하기';
+
+  renderMyAlertsWishlist();
+}
+
+async function doBuy(){
+  if(!requireLogin()) return;
+  const pinResult = askPin();
+  if(!pinResult.ok) return;
+  const r = await api('/api/trade', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action:'buy', model:selectedModel, grade:selectedGrade, delivery:deliveryMode, region:tradeRegion, pin:pinResult.pin})});
+  if(r){
+    if(deliveryMode==='storage'){ toast('구매 완료 · 보관함에 추가'); }
+    else { toast(`구매 완료 · 배송비 ${won(r.delivery_fee)} 포함 ${won(r.total)} 결제`); }
+    await refresh();
+  }
+}
+async function sellFromPortfolio(id){
+  if(!requireLogin()) return;
+  const r = await api(`/api/portfolio/${id}/sell`, {method:'POST'});
+  if(r){
+    if(r.storage_fee>0){ toast(`매도가 ${won(r.price)} − 보관료 ${won(r.storage_fee)} = ${won(r.net)} 입금`); }
+    else { toast(`매도 완료 · ${won(r.net)} 입금`); }
+    await refresh();
+  }
+}
+function openDeliveryFlow(id){ if(!requireLogin()) return; deliveryFlowId=id; deliveryFlowRegion='normal'; renderAll(); }
+function cancelDeliveryFlow(){ deliveryFlowId=null; renderAll(); }
+function setDeliveryRegion(region){ deliveryFlowRegion=region; renderAll(); }
+async function confirmDelivery(id){
+  if(!requireLogin()) return;
+  const pinResult = askPin();
+  if(!pinResult.ok) return;
+  const r = await api(`/api/portfolio/${id}/deliver`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({region:deliveryFlowRegion, pin:pinResult.pin})});
+  if(r){ deliveryFlowId=null; toast(`배송 신청 완료 · 배송비 ${won(r.total)} 차감`); await refresh(); }
+}
+function goTrade(){ currentView='trade'; renderAll(); }
+
+function renderPortfolio(){
+  document.getElementById('portCount').textContent = STATE.portfolio.length+'개';
+  let value=0, cost=0;
+  STATE.portfolio.forEach(it=>{ value += STATE.models[it.model_key].prices[it.grade].buy; cost += it.bought_price; });
+  document.getElementById('portValue').textContent = won(value);
+  const pl = value-cost;
+  const plEl = document.getElementById('portPL');
+  plEl.textContent = (pl>=0?'+':'')+won(pl);
+  plEl.style.color = pl>=0 ? 'var(--mint)' : 'var(--red)';
+  const panel = document.getElementById('portfolioPanel');
+  if(!STATE.user){
+    panel.innerHTML = `<div class="empty-state"><span class="glyph">🔒</span>로그인하면 보관함을 볼 수 있어요<br><button class="mini-btn" style="margin-top:10px;" onclick="openAuth()">로그인 / 회원가입</button></div>`;
+    return;
+  }
+  if(STATE.portfolio.length===0){
+    panel.innerHTML = `<div class="empty-state"><span class="glyph">🌱</span>아직 보관중인 아이템이 없어요<br><button class="mini-btn" style="margin-top:10px;" onclick="goTrade()">구매하러 가기</button></div>`;
+    return;
+  }
+  const riskItems = STATE.portfolio.filter(it=>it.risk_level>0);
+  const riskHtml = riskItems.map(it=>{
+    const m = STATE.models[it.model_key];
+    const cls = it.risk_level===2 ? 'level2' : 'level1';
+    const msg = it.risk_level===2
+      ? `보관료(${won(it.storage_fee)})가 현재 매도가(${won(it.current_value)})를 넘었어요. 지금 매도해도 남는 돈이 없거나 손해예요.`
+      : `보관료(${won(it.storage_fee)})가 현재 매도가(${won(it.current_value)})의 70%를 넘었어요. 방치하면 손해가 커질 수 있어요.`;
+    return `<div class="risk-banner ${cls}">⚠️ <b>${m?m.name:it.model_key} ${it.grade}급</b> — ${msg}</div>`;
+  }).join('');
+
+  panel.innerHTML = riskHtml + STATE.portfolio.map(it=>{
+    const m = STATE.models[it.model_key];
+    const nowPrice = m.prices[it.grade].buy;
+    const diff = nowPrice - it.bought_price;
+    const feeLabel = it.storage_fee>0
+      ? `<span class="fee-warn">보관 ${it.days_stored}일째 · 보관료 ${won(it.storage_fee)} 누적</span>`
+      : `<span class="fee-free">보관 ${it.days_stored}일째 · 무료기간</span>`;
+
+    if(deliveryFlowId===it.id){
+      const surcharge = deliveryFlowRegion==='remote' ? STATE.fees.remote_surcharge : 0;
+      const total = STATE.fees.delivery_base_fee + surcharge + it.storage_fee;
+      return `<div class="port-row expand">
+        <span class="name">${m.name} · ${it.grade}급<br>${feeLabel}</span>
+        <span class="mono">매입가 ${won(it.bought_price)}</span>
+        <span class="mono">현재가 ${won(nowPrice)}</span>
+        <span class="mono ${diff>=0?'pl-up':'pl-down'}">${diff>=0?'+':''}${won(diff)}</span>
+        <span class="port-actions"><button class="mini-btn" onclick="cancelDeliveryFlow()">취소</button></span>
+        <div class="delivery-flow">
+          <div class="field-label">배송 지역</div>
+          <div class="seg seg-2">
+            <button class="${deliveryFlowRegion==='normal'?'on':''}" onclick="setDeliveryRegion('normal')">일반지역<small>+₩0</small></button>
+            <button class="${deliveryFlowRegion==='remote'?'on':''}" onclick="setDeliveryRegion('remote')">제주/도서산간<small>+${won(STATE.fees.remote_surcharge)}</small></button>
+          </div>
+          <div class="fee-breakdown">배송비 ${won(STATE.fees.delivery_base_fee)}(포장비 포함) ${surcharge>0?`+ 지역할증 ${won(surcharge)}`:''} ${it.storage_fee>0?`+ 보관료 ${won(it.storage_fee)}`:''} = <b>${won(total)}</b></div>
+          <button class="action-btn red" style="margin-top:8px;" onclick="confirmDelivery('${it.id}')">배송 확정</button>
+        </div>
+      </div>`;
+    }
+
+    return `<div class="port-row">
+      <span>${m.name} · ${it.grade}급<br>${feeLabel}</span>
+      <span class="mono">매입가 ${won(it.bought_price)}</span>
+      <span class="mono">현재가 ${won(nowPrice)}</span>
+      <span class="mono ${diff>=0?'pl-up':'pl-down'}">${diff>=0?'+':''}${won(diff)}</span>
+      <span class="port-actions">
+        <button class="mini-btn" onclick="sellFromPortfolio('${it.id}')">지금 매도</button>
+        <button class="mini-btn" onclick="openDeliveryFlow('${it.id}')">배송신청</button>
+      </span></div>`;
+  }).join('');
+}
+
+// ---------------- 매입 신청 (검수 기반 판매) ----------------
+
+const SELL_STATUS_LABEL = {
+  submitted: {label:'접수됨 · 배송 대기', color:'var(--ink-muted)'},
+  received: {label:'수령완료 · 검수 대기', color:'var(--bean)'},
+  inspected: {label:'검수완료 · 정산 대기', color:'var(--bean)'},
+  paid: {label:'정산완료', color:'var(--mint)'},
+  rejected: {label:'반려됨', color:'var(--red)'},
+  cancelled: {label:'취소됨', color:'var(--ink-faint)'},
+};
+
+function renderSellView(){
+  const ftLabel = document.getElementById('fastTrackFeeLabel');
+  if(ftLabel && STATE.fees){
+    ftLabel.textContent = (STATE.user && STATE.user.tier.plus.active) ? `수수료 ${won(STATE.fees.fast_track_fee*0.5)} · 플러스 50%할인` : `수수료 ${won(STATE.fees.fast_track_fee)}`;
+  }
+  const el = document.getElementById('sellTickers'); el.innerHTML='';
+  Object.entries(STATE.models).filter(([,m])=>m.is_active).forEach(([key,m])=>{
+    const div = document.createElement('div');
+    div.className = 'ticker'+(selectedSellModel===key?' active':'');
+    div.innerHTML = `<div class="ticker-code">${m.code}</div><div class="ticker-name">${m.name}</div><div class="ticker-row"><span class="ticker-price">${won(m.mid)}</span></div>`;
+    div.onclick = ()=>{ selectedSellModel=key; renderAll(); };
+    el.appendChild(div);
+  });
+  const gseg = document.getElementById('sellGradeSeg'); gseg.innerHTML='';
+  GRADES.forEach(g=>{
+    const b = document.createElement('button');
+    b.className = selectedSellGrade===g.key?'on':'';
+    b.innerHTML = `${g.label}<small>${g.sub}</small>`;
+    b.onclick = ()=>{ selectedSellGrade=g.key; renderAll(); };
+    gseg.appendChild(b);
+  });
+  const est = STATE.models[selectedSellModel].prices[selectedSellGrade].buy;
+  document.getElementById('sellEstimateLine').textContent = `예상 매입가 ${won(est)} (자가진단 기준, 실제 검수 후 최종 확정)`;
+
+  const list = document.getElementById('sellRequestList');
+  if(!sellRequests || sellRequests.length===0){
+    list.innerHTML = `<div class="empty-state"><span class="glyph">📮</span>아직 매입 신청 내역이 없어요</div>`;
+    return;
+  }
+  list.innerHTML = sellRequests.map(r=>{
+    const st = SELL_STATUS_LABEL[r.status] || {label:r.status, color:'var(--ink-muted)'};
+    const m = STATE.models[r.model_key];
+    const priceLine = r.status==='paid'
+      ? `최종 지급액 ${won(r.final_price)} (${r.final_grade}급)`
+      : `예상가 ${won(r.estimated_price)} (자가진단 ${r.self_grade}급)`;
+    return `<div class="port-row" style="grid-template-columns:1fr auto;">
+      <span>
+        <b style="color:${st.color};">● ${st.label}</b><br>
+        ${m ? m.name : r.model_key} · ${priceLine}
+        ${r.admin_note ? `<br><span style="color:var(--ink-faint); font-size:11px;">관리자 메모: ${r.admin_note}</span>` : ''}
+      </span>
+      <span class="port-actions">
+        ${r.status==='submitted' ? `<button class="mini-btn" onclick="cancelSellRequest(${r.id})">신청취소</button>` : ''}
+      </span>
+    </div>`;
+  }).join('');
+}
+
+async function submitSellRequest(){
+  if(!requireLogin()) return;
+  const note = document.getElementById('sellNote').value;
+  const fast_track = document.getElementById('sellFastTrack').checked;
+  const r = await api('/api/sell/request', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({model:selectedSellModel, grade:selectedSellGrade, note, fast_track})});
+  if(r){
+    toast(`매입 신청 완료 · 예상가 ${won(r.estimated_price)}` + (r.fast_track_fee ? ` (빠른처리 수수료 ${won(r.fast_track_fee)} 별도)` : ''));
+    document.getElementById('sellNote').value = '';
+    document.getElementById('sellFastTrack').checked = false;
+    await loadSellRequests();
+    renderAll();
+  }
+}
+
+async function cancelSellRequest(id){
+  const r = await api(`/api/sell/${id}/cancel`, {method:'POST'});
+  if(r){ toast('신청을 취소했어요'); await loadSellRequests(); renderAll(); }
+}
+
+async function loadSellRequests(){
+  if(!STATE || !STATE.user){ sellRequests = []; return; }
+  const r = await api('/api/sell/my');
+  sellRequests = r ? r.requests : [];
+}
+
+// ---------------- 잔액 충전 (계좌이체) ----------------
+
+function renderDepositView(){
+  renderPlusPanel();
+  const cardPanel = document.getElementById('cardPaymentPanel');
+  const cardOn = STATE.fees && STATE.fees.card_payment_enabled;
+  if(cardPanel) cardPanel.style.display = cardOn ? '' : 'none';
+  const subtitle = document.getElementById('depositSubtitle');
+  if(subtitle) subtitle.textContent = cardOn ? '카드·간편결제로 즉시 충전하거나, 계좌이체로 충전해요' : '계좌이체로 충전해요';
+  const pinLine = document.getElementById('pinStatusLine');
+  if(pinLine) pinLine.textContent = hasPin ? '✅ 결제 비밀번호가 설정되어 있어요' : '⚠️ 아직 설정 안 했어요. 설정하면 구매·배송신청 시 한 번 더 확인해요.';
+  const phoneLine = document.getElementById('phoneStatusLine');
+  if(phoneLine){
+    if(STATE.user && STATE.user.phone_verified){
+      phoneLine.textContent = `✅ 인증 완료 (${STATE.user.phone_number||''})`;
+      document.getElementById('phoneInputField').style.display = 'none';
+      document.getElementById('phoneCodeField').style.display = 'none';
+    } else {
+      phoneLine.textContent = '⚠️ 아직 인증하지 않았어요. 인증하면 사기 방지에 도움이 돼요.';
+    }
+  }
+  const box = document.getElementById('depositAccountBox');
+  if(depositAccount){
+    box.innerHTML = `
+      <div class="row1"><span class="lbl">${depositAccount.bank_name}</span><span class="val">${depositAccount.account_number}</span></div>
+      <div class="src">예금주: ${depositAccount.holder_name}</div>`;
+  } else {
+    box.innerHTML = `<div class="src">입금 가능한 계좌 정보를 불러오는 중이거나, 현재 등록된 계좌가 없어요.</div>`;
+  }
+
+  const list = document.getElementById('depositRequestList');
+  if(!depositRequests || depositRequests.length===0){
+    list.innerHTML = `<div class="empty-state"><span class="glyph">💳</span>충전 내역이 없어요</div>`;
+    return;
+  }
+  const statusLabel = {pending:['입금 확인 대기','var(--bean)'], approved:['충전 완료','var(--mint)'], rejected:['반려됨','var(--red)']};
+  list.innerHTML = depositRequests.map(d=>{
+    const [label,color] = statusLabel[d.status] || [d.status,'var(--ink-muted)'];
+    return `<div class="port-row" style="grid-template-columns:1fr auto;">
+      <span><b style="color:${color};">● ${label}</b><br>${won(d.amount)} · 참조코드 ${d.reference_code}</span>
+      <span class="mono" style="font-size:11px; color:var(--ink-faint);">${new Date(d.created_at).toLocaleString('ko-KR')}</span>
+    </div>`;
+  }).join('');
+}
+
+async function loadDepositData(){
+  if(!STATE || !STATE.user){ depositAccount=null; depositRequests=[]; return; }
+  const acc = await api('/api/deposit/active-account');
+  depositAccount = acc && !acc.error ? acc : null;
+  const r = await api('/api/deposit/my');
+  depositRequests = r ? r.requests : [];
+}
+
+async function sendPhoneCode(){
+  if(!requireLogin()) return;
+  const phone = document.getElementById('phoneInput').value.trim();
+  const r = await api('/api/auth/send-phone-code', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({phone})});
+  if(r){
+    document.getElementById('phoneCodeField').style.display = '';
+    const note = document.getElementById('phoneSentNote');
+    if(r.mode==='dev_mode' || r.mode==='not_implemented'){
+      note.textContent = `[DEV MODE] 인증코드: ${r.dev_code}`;
+      document.getElementById('phoneCodeInput').value = r.dev_code;
+    } else {
+      note.textContent = '인증코드를 보냈어요.';
+    }
+  }
+}
+async function verifyPhoneCode(){
+  const phone = document.getElementById('phoneInput').value.trim();
+  const code = document.getElementById('phoneCodeInput').value.trim();
+  const r = await api('/api/auth/verify-phone-code', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({phone, code})});
+  if(r){ toast('휴대폰 인증이 완료됐어요 ✅'); await refresh(); }
+}
+
+async function savePin(){
+  if(!requireLogin()) return;
+  const pin = document.getElementById('pinInput').value.trim();
+  const r = await api('/api/auth/set-pin', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({pin})});
+  if(r){ toast('결제 비밀번호를 저장했어요'); hasPin = true; document.getElementById('pinInput').value=''; renderDepositView(); }
+}
+function askPin(){
+  if(!hasPin) return {ok:true, pin:null};
+  const pin = prompt('결제 비밀번호 6자리를 입력해주세요');
+  if(pin===null) return {ok:false};
+  return {ok:true, pin};
+}
+
+async function startPgPayment(){
+  if(!requireLogin()) return;
+  const amount = parseInt(document.getElementById('pgAmount').value);
+  if(!amount){ toast('충전할 금액을 입력해주세요'); return; }
+  const r = await api('/api/pg/create-order', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({amount})});
+  if(!r) return;
+  if(typeof TossPayments === 'undefined'){ toast('결제 모듈을 불러오지 못했어요. 새로고침 후 다시 시도해주세요'); return; }
+  const tossPayments = TossPayments(r.client_key);
+  const base = location.origin;
+  tossPayments.requestPayment('카드', {
+    amount: r.amount,
+    orderId: r.order_id,
+    orderName: r.order_name,
+    customerName: STATE.user.email,
+    successUrl: `${base}/api/pg/success`,
+    failUrl: `${base}/api/pg/fail`,
+  }).catch(()=>{ /* 사용자가 결제창을 닫은 경우 등 */ });
+}
+
+async function submitDepositRequest(){
+  if(!requireLogin()) return;
+  const amount = parseInt(document.getElementById('depositAmount').value);
+  if(!amount){ toast('충전할 금액을 입력해주세요'); return; }
+  const r = await api('/api/deposit/request', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({amount})});
+  if(r){
+    document.getElementById('depositResultNote').innerHTML =
+      `<b style="color:var(--mint);">${r.bank.bank_name} ${r.bank.account_number} (${r.bank.holder_name})</b>로<br>
+       입금자명에 <b style="color:var(--bean);">${r.reference_code}</b>를 꼭 포함해서 ${won(r.amount)} 이체해주세요.`;
+    document.getElementById('depositAmount').value = '';
+    await loadDepositData();
+    renderAll();
+  }
+}
+
+// ---------------- 출금 ----------------
+let withdrawPriority = 'normal', withdrawRequests = [];
+async function loadWithdrawals(){
+  if(!STATE || !STATE.user){ withdrawRequests = []; return; }
+  const r = await api('/api/my-withdrawals');
+  withdrawRequests = r ? r.requests : [];
+}
+const WITHDRAW_STATUS_LABEL = {
+  pending: ['처리 대기중', 'var(--bean)'], completed: ['출금 완료', 'var(--mint)'],
+  rejected: ['거절됨', 'var(--red)'], cancelled: ['취소됨', 'var(--ink-faint)'],
+};
+function renderWithdrawView(){
+  const instantOn = !!(STATE.fees && STATE.fees.instant_withdraw_enabled);
+  if(!instantOn && withdrawPriority==='instant') withdrawPriority = 'normal';
+
+  const dateBanner = document.getElementById('settlementDateBanner');
+  if(dateBanner){
+    const d = STATE.fees && STATE.fees.next_settlement_date;
+    dateBanner.innerHTML = d ? `<div class="announce-banner">📅<span><b>다음 정산일: ${d}</b>일반출금은 매주 일요일에 한 번에 처리돼요. 신청은 언제든 가능해요.</span></div>` : '';
+  }
+
+  const seg = document.getElementById('withdrawPrioritySeg'); seg.innerHTML = '';
+  const feeRate = (STATE.fees && STATE.fees.instant_withdraw_fee) || 0.015;
+  const options = [{k:'normal', l:'일반출금', s:'무료 · 매주 일요일 일괄 정산'}];
+  if(instantOn) options.push({k:'instant', l:'⚡즉시출금', s:`수수료 ${(feeRate*100).toFixed(1)}% · 최우선 처리`});
+  options.forEach(p=>{
+    const b = document.createElement('button');
+    b.className = withdrawPriority===p.k ? 'on' : '';
+    b.innerHTML = `${p.l}<small>${p.s}</small>`;
+    b.onclick = ()=>{ withdrawPriority = p.k; renderWithdrawView(); };
+    seg.appendChild(b);
+  });
+  const amount = parseInt(document.getElementById('withdrawAmount').value) || 0;
+  const fee = withdrawPriority==='instant' ? Math.round(amount*feeRate) : 0;
+  document.getElementById('withdrawFeeNote').textContent = withdrawPriority==='instant'
+    ? '즉시출금은 관리자 최우선 처리 큐로 들어가요. 실제 송금은 여전히 관리자 확인 후 진행돼요 (자동화된 즉시입금은 아니에요).'
+    : '일반출금은 수수료 없이, 신청 시점과 무관하게 매주 일요일에 한 번에 정산돼요.';
+  document.getElementById('withdrawTotalLine').textContent = amount>0
+    ? `출금 신청 ${won(amount)} − 수수료 ${won(fee)} = 실수령 ${won(amount-fee)}` : '';
+
+  const list = document.getElementById('withdrawRequestList');
+  if(!STATE.user){
+    list.innerHTML = `<div class="empty-state"><span class="glyph">🔒</span>로그인하면 이용할 수 있어요</div>`;
+  } else if(withdrawRequests.length===0){
+    list.innerHTML = `<div class="empty-state"><span class="glyph">🏦</span>출금 내역이 없어요</div>`;
+  } else {
+    list.innerHTML = withdrawRequests.map(w=>{
+      const [label,color] = WITHDRAW_STATUS_LABEL[w.status] || [w.status,'var(--ink-muted)'];
+      return `<div class="port-row" style="grid-template-columns:1fr auto;">
+        <span><b style="color:${color};">● ${label}</b> ${w.priority==='instant'?'⚡':''}<br>
+          ${won(w.amount)} (수수료 ${won(w.fee)}, 실수령 ${won(w.net_amount)}) · ${w.bank_name} ${w.account_number}</span>
+        ${w.status==='pending' ? `<button class="mini-btn" onclick="cancelWithdraw(${w.id})">취소</button>` : ''}
+      </div>`;
+    }).join('');
+  }
+}
+async function submitWithdraw(){
+  if(!requireLogin()) return;
+  const amount = parseInt(document.getElementById('withdrawAmount').value);
+  const bank_name = document.getElementById('withdrawBank').value.trim();
+  const account_number = document.getElementById('withdrawAccount').value.trim();
+  const holder_name = document.getElementById('withdrawHolder').value.trim();
+  if(!amount){ toast('출금할 금액을 입력해주세요'); return; }
+  if(!bank_name || !account_number || !holder_name){ toast('은행/계좌번호/예금주를 모두 입력해주세요'); return; }
+  const pinResult = askPin();
+  if(!pinResult.ok) return;
+  const r = await api('/api/withdraw/request', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({amount, priority:withdrawPriority, bank_name, account_number, holder_name, pin:pinResult.pin})});
+  if(r){
+    toast(`출금 신청 완료 · 실수령 예정 ${won(r.net_amount)}`);
+    document.getElementById('withdrawAmount').value = '';
+    document.getElementById('withdrawBank').value = '';
+    document.getElementById('withdrawAccount').value = '';
+    document.getElementById('withdrawHolder').value = '';
+    await loadWithdrawals();
+    await refresh();
+  }
+}
+async function cancelWithdraw(id){
+  const r = await api(`/api/withdraw/${id}/cancel`, {method:'POST'});
+  if(r){ toast('출금 신청을 취소했어요'); await loadWithdrawals(); await refresh(); }
+}
+
+
+
+function renderAll(){
+  if(!STATE) return;
+  renderNav(); renderWallet(); renderAuthBox();
+  if(currentView==='market'){ renderMarketTickers(); renderChart(); renderFeed(); renderStats(); renderPopularBanner(); }
+  if(currentView==='trade'){ renderTradeTickers(); }
+  if(currentView==='sell'){ renderSellView(); }
+  if(currentView==='deposit'){ renderDepositView(); }
+  if(currentView==='withdraw'){ renderWithdrawView(); }
+  if(currentView==='portfolio'){ renderPortfolio(); }
+  if(currentView==='notice'){ renderNotice(); }
+  if(currentView==='reviews'){ renderReviewsView(); }
+  if(currentView==='bizinfo'){ renderBizInfo(); }
+  if(currentView==='guide'){ renderGuide(); }
+}
+
+function renderGuide(){
+  const f = STATE.fees;
+
+  const nav = document.getElementById('guideJumpNav');
+  if(nav && !nav.dataset.built){
+    const panels = document.querySelectorAll('#view-guide .panel');
+    nav.innerHTML = '';
+    panels.forEach(p=>{
+      const titleEl = p.querySelector('.panel-title');
+      if(!titleEl) return;
+      const text = titleEl.textContent.trim();
+      const emoji = (text.match(/^\S+/)||[''])[0];
+      const rest = text.slice(emoji.length).trim().split(/[·—(]/)[0].trim();
+      const shortText = rest.length > 9 ? rest.slice(0,9) : rest;
+      const b = document.createElement('button');
+      b.textContent = `${emoji} ${shortText}`;
+      b.onclick = ()=> p.scrollIntoView({behavior:'smooth', block:'start'});
+      nav.appendChild(b);
+    });
+    nav.dataset.built = '1';
+  }
+
+  const storageEl = document.getElementById('storageGuideLine');
+  if(storageEl) storageEl.innerHTML =
+    `보관은 첫 <b style="color:var(--ink);">${f.storage_free_days}일 무료</b>고, 그 이후엔 30일마다 ${won(f.storage_fee_per_month)}씩 보관료가 붙어요.
+     너무 오래 방치해서 보관료가 물건 가치의 70%를 넘으면 경고 알림이, 100%를 넘으면 위험 알림이 가요 —
+     이땐 얼른 매도하거나 배송받는 게 좋아요.<br><br>
+     배송은 기본 ${won(f.delivery_base_fee)}(포장비 포함)이고, 제주/도서산간은 +${won(f.remote_surcharge)}가 더 붙어요.`;
+
+  const plusEl = document.getElementById('plusGuideLine');
+  if(plusEl) plusEl.innerHTML =
+    `월 <b style="color:var(--ink);">${won(f.plus_monthly_fee)}</b> 구독으로 아래 혜택을 받아요.<br><br>
+     · 보관료 평생 무료<br>
+     · 매입·구매 스프레드 추가 0.2%p 할인 (단골등급 할인에 더해져요)<br>
+     · 배송비 · 정품 인증서 발급비 · 매입 빠른처리 수수료 각각 50% 할인<br><br>
+     "충전" 탭에서 바로 구독할 수 있고, 자동갱신 여부도 그때그때 바꿀 수 있어요.`;
+
+  const certEl = document.getElementById('certGuideLine');
+  if(certEl) certEl.innerHTML =
+    `실제로 구매한 상품에 한해서, 모델명·등급·구매일이 담긴 PDF 인증서를 발급받을 수 있어요
+     (발급 ${won(f.certificate_fee)}, 플러스 회원 50% 할인). 인증서마다 고유 코드가 있어서, 나중에
+     되팔 때 사이트 하단 "인증서 확인" 메뉴에서 누구나 진위를 조회할 수 있어요. 한 번 발급하면
+     재다운로드는 무료예요. "리뷰" 탭의 내 구매내역에서 발급받을 수 있어요.`;
+
+  const giftEl = document.getElementById('giftGuideLine');
+  if(giftEl) giftEl.innerHTML =
+    `"구매하기" 탭에서 받는 분 이메일만 입력하면 선물할 수 있어요 (서비스료 ${won(f.gift_service_fee)} 별도).
+     상대방이 이미 콩나물 회원이면 바로 보관함으로 전달되고, 아직 가입 전이면 그 이메일로
+     회원가입하는 순간 자동으로 전달돼요.`;
+
+  const dwEl = document.getElementById('depositWithdrawGuideLine');
+  if(dwEl) dwEl.innerHTML =
+    `충전은 계좌이체${f.card_payment_enabled ? '와 카드/간편결제' : ''}로 할 수 있어요.<br><br>
+     출금은 신청은 언제든 가능하지만, <b style="color:var(--ink);">매주 일요일에 한 번에 정산</b>돼요
+     (다음 정산일: ${f.next_settlement_date}).${f.instant_withdraw_enabled ? ` 급하면 수수료 ${(f.instant_withdraw_fee*100).toFixed(1)}%를 내는 즉시출금도 있어요.` : ''}`;
+}
+
+// ---------------- 공지사항 ----------------
+let announcements = [];
+async function loadAnnouncements(){
+  const r = await api('/api/announcements');
+  announcements = r ? r.announcements : [];
+  renderNoticeBanner();
+  if(currentView==='notice') renderNotice();
+}
+function renderNoticeBanner(){
+  const el = document.getElementById('noticeBanner');
+  if(!el) return;
+  const pinned = announcements.find(a=>a.pinned);
+  if(!pinned){ el.innerHTML=''; return; }
+  el.innerHTML = `<div class="announce-banner">📌<span><b>${pinned.title}</b>${pinned.body||''}</span></div>`;
+}
+function renderNotice(){
+  const el = document.getElementById('noticeList');
+  if(!el) return;
+  if(announcements.length===0){ el.innerHTML = '<div class="empty-state"><span class="glyph">📢</span>등록된 공지사항이 없어요</div>'; return; }
+  el.innerHTML = announcements.map(a=>`
+    <div style="padding:14px 2px; border-bottom:1px solid var(--border-soft);">
+      <div style="display:flex; justify-content:space-between; gap:8px;">
+        <b style="font-size:13.5px;">${a.pinned?'📌 ':''}${a.title}</b>
+        <span style="font-size:11px; color:var(--ink-faint); white-space:nowrap;">${new Date(a.created_at).toLocaleDateString('ko-KR')}</span>
+      </div>
+      <p style="font-size:12.5px; color:var(--ink-muted); margin-top:6px; line-height:1.6;">${a.body||''}</p>
+    </div>
+  `).join('');
+}
+
+// ---------------- 리뷰 ----------------
+let myOrders = [], reviewsData = {reviews:[], average:null, count:0};
+let openReviewOrderId = null, pendingRating = {};
+
+async function loadReviewsView(){
+  const [o, r] = await Promise.all([
+    STATE && STATE.user ? api('/api/my-orders') : Promise.resolve(null),
+    api('/api/reviews'),
+  ]);
+  myOrders = o ? o.orders : [];
+  reviewsData = r || {reviews:[], average:null, count:0};
+}
+
+function stars(n){
+  const full = Math.round(n);
+  return '★'.repeat(Math.max(0,full)) + '☆'.repeat(Math.max(0,5-full));
+}
+
+function renderReviewsView(){
+  const sum = document.getElementById('reviewSummary');
+  if(reviewsData.average!==null){
+    sum.innerHTML = `<div style="font-size:30px; color:var(--bean); letter-spacing:2px;">${stars(reviewsData.average)}</div>
+      <div style="font-family:var(--font-mono); font-size:20px; font-weight:800; margin-top:6px;">${reviewsData.average.toFixed(1)}</div>
+      <div style="font-size:11.5px; color:var(--ink-muted); margin-top:2px;">${reviewsData.count}개의 리뷰</div>`;
+  } else {
+    sum.innerHTML = `<div class="empty-state"><span class="glyph">⭐</span>아직 리뷰가 없어요</div>`;
+  }
+
+  const myEl = document.getElementById('myOrdersList');
+  if(!STATE.user){
+    myEl.innerHTML = `<div class="empty-state"><span class="glyph">🔒</span>로그인하면 구매내역을 볼 수 있어요<br><button class="mini-btn" style="margin-top:10px;" onclick="openAuth()">로그인 / 회원가입</button></div>`;
+  } else if(myOrders.length===0){
+    myEl.innerHTML = `<div class="empty-state"><span class="glyph">🛒</span>아직 구매내역이 없어요</div>`;
+  } else {
+    myEl.innerHTML = myOrders.map(o=>{
+      const m = STATE.models[o.model_key];
+      const name = m ? m.name : o.model_key;
+      const certBtn = o.has_certificate
+        ? `<button class="mini-btn" onclick="downloadCertificate(${o.id})">📜 인증서 다운로드</button>`
+        : `<button class="mini-btn" onclick="downloadCertificate(${o.id})">📜 인증서 발급 (${STATE.user.tier.plus.active ? won((STATE.fees.certificate_fee||3000)*0.5)+' · 플러스 50%할인' : won(STATE.fees.certificate_fee||3000)})</button>`;
+      if(o.reviewed){
+        return `<div class="port-row" style="grid-template-columns:1fr auto auto;">
+          <span>${name} · ${o.grade}급 · ${won(o.price)}</span>
+          <span style="color:var(--mint-deep); font-size:11.5px; font-weight:600;">리뷰 완료 ✓</span>
+          ${certBtn}
+        </div>`;
+      }
+      if(openReviewOrderId===o.id){
+        const r = pendingRating[o.id] || 5;
+        return `<div class="port-row expand">
+          <span class="name">${name} · ${o.grade}급 · ${won(o.price)}</span>
+          <div class="delivery-flow">
+            <div class="field-label">별점</div>
+            <div style="font-size:26px; letter-spacing:4px; cursor:pointer; color:var(--bean);" id="starPicker-${o.id}">
+              ${[1,2,3,4,5].map(n=>`<span onclick="setRating(${o.id},${n})">${n<=r?'★':'☆'}</span>`).join('')}
+            </div>
+            <textarea class="auth-input" id="reviewComment-${o.id}" style="width:100%; min-height:60px; margin-top:10px; font-family:var(--font-body);" placeholder="사용 경험을 남겨주세요 (선택)"></textarea>
+            <div class="btn-row" style="margin-top:8px; display:flex; gap:8px;">
+              <button class="action-btn mint" onclick="submitReview(${o.id})">등록하기</button>
+              <button class="mini-btn" onclick="openReviewOrderId=null; renderReviewsView();">취소</button>
+            </div>
+          </div>
+        </div>`;
+      }
+      return `<div class="port-row" style="grid-template-columns:1fr auto auto;">
+        <span>${name} · ${o.grade}급 · ${won(o.price)}</span>
+        <button class="mini-btn" onclick="openReviewOrderId=${o.id}; pendingRating[${o.id}]=5; renderReviewsView();">리뷰 쓰기</button>
+        ${certBtn}
+      </div>`;
+    }).join('');
+  }
+
+  const listEl = document.getElementById('reviewList');
+  if(reviewsData.reviews.length===0){
+    listEl.innerHTML = `<div class="empty-state"><span class="glyph">⭐</span>아직 리뷰가 없어요</div>`;
+  } else {
+    listEl.innerHTML = reviewsData.reviews.map(r=>{
+      const m = STATE.models[r.model_key];
+      return `<div style="padding:14px 2px; border-bottom:1px solid var(--border-soft);">
+        <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+          <span style="color:var(--bean); letter-spacing:1px;">${stars(r.rating)}</span>
+          <span style="font-size:11px; color:var(--ink-faint);">${r.email} · ${new Date(r.created_at).toLocaleDateString('ko-KR')}</span>
+        </div>
+        <div style="font-size:12px; color:var(--ink-muted); margin-top:4px;">${m?m.name:r.model_key} ${r.grade}급</div>
+        ${r.comment ? `<p style="font-size:12.5px; margin-top:6px; line-height:1.6;">${r.comment}</p>` : ''}
+      </div>`;
+    }).join('');
+  }
+}
+function setRating(orderId, n){ pendingRating[orderId] = n; renderReviewsView(); }
+async function submitReview(orderId){
+  const rating = pendingRating[orderId] || 5;
+  const comment = document.getElementById(`reviewComment-${orderId}`).value;
+  const r = await api('/api/reviews', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({trade_id:orderId, rating, comment})});
+  if(r){
+    toast('리뷰가 등록됐어요. 감사해요! 🌱');
+    openReviewOrderId = null;
+    await loadReviewsView();
+    renderReviewsView();
+  }
+}
+
+function renderPlusPanel(){
+  const el = document.getElementById('plusPanel');
+  if(!el) return;
+  if(!STATE.user){
+    el.innerHTML = `<div class="empty-state"><span class="glyph">🔒</span>로그인하면 이용할 수 있어요<br><button class="mini-btn" style="margin-top:10px;" onclick="openAuth()">로그인 / 회원가입</button></div>`;
+    return;
+  }
+  const plus = STATE.user.tier.plus;
+  const fee = STATE.fees.plus_monthly_fee;
+  if(plus.active){
+    const expiry = new Date(plus.expires_at).toLocaleDateString('ko-KR');
+    el.innerHTML = `
+      <p style="font-size:13px; margin-bottom:2px; position:relative; z-index:1;">✅ 플러스 회원이에요! <b>${expiry}</b>까지 유효해요.</p>
+      <ul class="plus-perks">
+        <li>보관료 평생 무료</li>
+        <li>매입·구매 스프레드 추가 0.2%p 할인</li>
+        <li>배송비 · 인증서 발급비 · 빠른처리 수수료 각 50% 할인</li>
+      </ul>
+      <label style="display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--ink-muted); margin-bottom:10px; position:relative; z-index:1;">
+        <input type="checkbox" ${plus.auto_renew?'checked':''} onchange="togglePlusAutoRenew()"> 자동 갱신 (다음 결제 ${won(fee)})
+      </label>
+      ${plus.refund_eligible ? `<button class="mini-btn" onclick="cancelPlusRefund()" style="position:relative; z-index:1;">결제 24시간 이내 · 즉시취소 + 전액환불</button>` : ''}`;
+  } else {
+    el.innerHTML = `
+      <div class="plus-price" style="position:relative; z-index:1;">${won(fee)}<span style="font-size:12px; color:var(--ink-muted); font-weight:600;"> /월</span></div>
+      <ul class="plus-perks">
+        <li>보관료 평생 무료</li>
+        <li>매입·구매 스프레드 추가 0.2%p 할인</li>
+        <li>배송비 · 인증서 발급비 · 빠른처리 수수료 각 50% 할인</li>
+      </ul>
+      <button class="action-btn mint" onclick="subscribePlus()" style="position:relative; z-index:1;">플러스 구독하기</button>`;
+  }
+}
+async function subscribePlus(){
+  if(!requireLogin()) return;
+  const fee = STATE.fees.plus_monthly_fee;
+  const already = STATE.user.tier.plus.active;
+  const msg = already
+    ? `구독을 30일 연장할게요. ${won(fee)}이 지금 바로 결제돼요. 계속할까요?`
+    : `콩나물 플러스를 구독할게요. ${won(fee)}이 지금 바로 결제되고, 이후 매달 자동으로 결제돼요 (자동갱신은 언제든 끌 수 있어요). 계속할까요?`;
+  if(!confirm(msg)) return;
+  const pinResult = askPin();
+  if(!pinResult.ok) return;
+  const r = await api('/api/plus/subscribe', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({pin:pinResult.pin})});
+  if(r){ toast('콩나물 플러스 구독 완료! 🌱'); await refresh(); renderPlusPanel(); }
+}
+async function togglePlusAutoRenew(){
+  const r = await api('/api/plus/toggle-autorenew', {method:'POST'});
+  if(r){ toast(r.auto_renew ? '자동 갱신을 켰어요' : '자동 갱신을 껐어요'); await refresh(); renderPlusPanel(); }
+}
+async function cancelPlusRefund(){
+  if(!confirm('구독을 즉시 취소하고 전액 환불받을까요? 혜택은 바로 사라져요.')) return;
+  const r = await api('/api/plus/cancel-refund', {method:'POST'});
+  if(r){ toast(`구독을 취소하고 ${won(r.refunded)}을 환불했어요`); await refresh(); renderPlusPanel(); }
+}
+
+function downloadCertificate(tradeId){
+  if(!requireLogin()) return;
+  window.open(`/api/certificate/${tradeId}`, '_blank');
+  // 발급(과금)이 실제로 일어났을 수 있으니 목록/잔액을 갱신해요
+  setTimeout(async ()=>{ await loadReviewsView(); await refresh(); renderReviewsView(); }, 1200);
+}
+
+async function verifyCertificate(){
+  const code = document.getElementById('certVerifyInput').value.trim();
+  if(!code){ toast('인증코드를 입력해주세요'); return; }
+  const r = await api(`/api/verify-certificate/${encodeURIComponent(code)}`);
+  const box = document.getElementById('certVerifyResult');
+  box.style.display = '';
+  if(!r || !r.valid){
+    box.innerHTML = `<div class="risk-banner level2">❌ 유효하지 않은 인증코드예요. 다시 확인해주세요.</div>`;
+    return;
+  }
+  box.innerHTML = `
+    <div class="risk-banner" style="background:var(--mint-tint); border:1px solid var(--mint-line); color:var(--mint-deep);">✅ 유효한 정품 인증서예요</div>
+    <div style="margin-top:10px;">
+      <div class="port-row" style="grid-template-columns:1fr auto;"><span>상품명</span><span class="mono">${r.model_name}</span></div>
+      <div class="port-row" style="grid-template-columns:1fr auto;"><span>검수 등급</span><span class="mono">${r.grade}급</span></div>
+      <div class="port-row" style="grid-template-columns:1fr auto;"><span>구매가</span><span class="mono">${won(r.price)}</span></div>
+      <div class="port-row" style="grid-template-columns:1fr auto;"><span>구매자</span><span class="mono">${r.buyer_email_masked}</span></div>
+      <div class="port-row" style="grid-template-columns:1fr auto;"><span>구매일</span><span class="mono">${r.trade_date}</span></div>
+      <div class="port-row" style="grid-template-columns:1fr auto;"><span>발급일</span><span class="mono">${r.issued_at}</span></div>
+    </div>`;
+}
+
+// ---------------- 사업자 정보 ----------------
+let bizInfo = {};
+async function loadBizInfo(){
+  const r = await api('/api/business-info');
+  bizInfo = r || {};
+  const line = document.getElementById('footerBizLine');
+  if(line){
+    line.textContent = `${bizInfo.company_name||''} · 대표 ${bizInfo.ceo_name||''} · 사업자등록번호 ${bizInfo.biz_reg_no||''} · 통신판매업 ${bizInfo.mail_order_no||''}`;
+  }
+}
+function renderBizInfo(){
+  const panel = document.getElementById('bizInfoPanel');
+  const rows = [
+    ['상호명', bizInfo.company_name], ['대표자', bizInfo.ceo_name],
+    ['사업자등록번호', bizInfo.biz_reg_no], ['통신판매업 신고번호', bizInfo.mail_order_no],
+    ['주소', bizInfo.address], ['전화', bizInfo.phone], ['이메일', bizInfo.email],
+  ];
+  panel.innerHTML = rows.map(([l,v])=>`
+    <div style="display:flex; justify-content:space-between; padding:10px 2px; border-bottom:1px solid var(--border-soft); font-size:12.5px;">
+      <span style="color:var(--ink-muted);">${l}</span><span>${v||'-'}</span>
+    </div>`).join('');
+}
+
+// ---------------- 실시간 알림 (SSE) ----------------
+let eventSource = null;
+function connectSSE(){
+  if(eventSource) return;
+  eventSource = new EventSource('/api/stream');
+  eventSource.onmessage = (e)=>{
+    try{
+      const data = JSON.parse(e.data);
+      if(data.type==='connected') return;
+      toast(data.message);
+      if(data.wallet_changed || ['sell_status','account','withdraw'].includes(data.type)) refresh();
+      if(data.type==='withdraw' && currentView==='withdraw'){ loadWithdrawals().then(renderWithdrawView); }
+      if(data.type==='announcement'){ loadAnnouncements(); }
+      if(data.type==='price_alert'){ loadPriceAlerts().then(()=>{ if(currentView==='trade') renderTradeTickers(); }); }
+      if(data.type==='restock'){ loadWishlist().then(()=>{ if(currentView==='trade') renderTradeTickers(); }); refresh(); }
+    }catch(err){}
+  };
+  eventSource.onerror = ()=>{
+    // 연결이 끊기면 브라우저가 자동 재연결을 시도해요 (retry 힌트를 서버에서 내려줌)
+  };
+}
+function disconnectSSE(){
+  if(eventSource){ eventSource.close(); eventSource = null; }
+}
+
+// ---------------- PG 결제 콜백 처리 ----------------
+function handlePgCallback(){
+  const params = new URLSearchParams(location.search);
+  const pg = params.get('pg');
+  if(pg==='success'){
+    toast(`카드 결제로 ${won(params.get('amount')||0)} 충전됐어요 🎉`);
+    refresh();
+  } else if(pg==='fail'){
+    toast(`결제 실패: ${params.get('message')||'알 수 없는 오류'}`);
+  }
+  if(pg){
+    const url = new URL(location.href);
+    url.searchParams.delete('pg'); url.searchParams.delete('amount'); url.searchParams.delete('message');
+    history.replaceState({}, '', url.toString());
+  }
+}
+
+function handleViewDeepLink(){
+  const params = new URLSearchParams(location.search);
+  const view = params.get('view');
+  const allowed = ['terms','privacy','bizinfo','verifycert','notice','guide'];
+  if(view && allowed.includes(view)){
+    currentView = view;
+  }
+}
+
+document.addEventListener('click', ()=>{ const tb = document.getElementById('tierBox'); if(tb) tb.classList.remove('open'); });
+
+// ---------------- PWA: 서비스워커 등록 + 설치 유도 ----------------
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', ()=> navigator.serviceWorker.register('/sw.js').catch(()=>{}));
+}
+let deferredInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', (e)=>{
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  if(!localStorage.getItem('pwaInstallDismissed')) showInstallBanner();
+});
+function showInstallBanner(){
+  const el = document.getElementById('pwaInstallBanner');
+  if(el) el.style.display = 'flex';
+}
+async function installPwa(){
+  const el = document.getElementById('pwaInstallBanner');
+  if(el) el.style.display = 'none';
+  if(!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt = null;
+}
+function dismissInstallBanner(){
+  const el = document.getElementById('pwaInstallBanner');
+  if(el) el.style.display = 'none';
+  localStorage.setItem('pwaInstallDismissed', '1');
+}
+
+handleViewDeepLink();
+loadBizInfo();
+loadAnnouncements();
+loadPopular();
+handlePgCallback();
+refresh();
+setInterval(refresh, 3000); // 서버 상태를 3초마다 폴링 (서버의 자동 tick 결과도 여기서 반영됨)
+setInterval(()=>{ if(STATE && currentView==='trade') renderTradeTickers(); }, 1000); // 드랍 카운트다운 갱신
+setInterval(loadPopular, 60000); // 인기상품은 1분마다 갱신
+</script>
+</body>
+</html>
