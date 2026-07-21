@@ -2271,7 +2271,7 @@ def api_sell_cancel(req_id):
 # ---------------- 예약(관심등록) ----------------
 # 드랍(판매 시간창)이 곧 시작되는 상품에 미리 관심 등록을 해두면, 사이트 방문 시
 # "예약하신 상품이 곧 판매돼요" 같은 안내를 볼 수 있어요. 예약 자체가 구매를 확정하거나
-# 재고를 미리 잡아두지는 않아요 (선착순 원칙은 동일하게 유지).
+# 재고를 미리 잡아두지는 않아요 (선착순 원칙�� 동일하게 유지).
 
 @app.route('/api/reserve', methods=['POST'])
 @login_required
@@ -3465,4 +3465,4 @@ if os.environ.get('AIRMRKT_ENABLE_SCHEDULER', '1') == '1':
     threading.Thread(target=scheduler_loop, daemon=True).start()
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', '5000')), debug=False, threaded=True)
