@@ -13,7 +13,9 @@
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <title>콩나물 — 에어팟 리셀 마켓</title>
 <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Jua&family=Gaegu:wght@700&display=swap" rel="stylesheet">
 <script src="https://js.tosspayments.com/v1/payment"></script>
 <style>
   :root{
@@ -29,6 +31,8 @@
     --shadow-mint:0 12px 26px -10px rgba(55,179,74,0.45);
     --shadow-lift:0 20px 44px -14px rgba(45,120,55,0.24);
     --font-mono:'JetBrains Mono','SF Mono',monospace; --font-body:'Pretendard',-apple-system,sans-serif;
+    --font-display:'Jua','Pretendard',sans-serif;
+    --r-sm:14px; --r-md:18px; --r-lg:24px; --r-xl:30px;
   }
   *{box-sizing:border-box; margin:0; padding:0;}
   ::selection{ background:var(--mint-tint); color:var(--mint-deep); }
@@ -43,7 +47,9 @@
   @media (prefers-reduced-motion: reduce){ .view{ animation:none; } }
   .topbar{ position:sticky; top:0; z-index:20; background:rgba(243,251,236,0.85); backdrop-filter:blur(12px) saturate(1.15);
     border-bottom:1px solid var(--border); display:flex; align-items:center; gap:18px; padding:13px 20px; flex-wrap:wrap; }
-  .logo{ font-weight:800; font-size:18px; display:flex; align-items:center; gap:7px; letter-spacing:-0.03em; color:var(--ink); }
+  .logo{ font-family:var(--font-display); font-weight:400; font-size:21px; display:flex; align-items:center; gap:7px; letter-spacing:0; color:var(--mint-deep); }
+  .logo .sprout svg{ transform:rotate(-4deg); transition:transform .3s cubic-bezier(.34,1.56,.5,1); }
+  .logo:hover .sprout svg{ transform:rotate(6deg) scale(1.08); }
   .logo .sprout{ display:inline-flex; }
   .live-tag{ font-family:var(--font-mono); font-size:10px; color:var(--mint-deep); background:var(--mint-tint); border:1px solid var(--mint-line); padding:3px 8px; border-radius:12px; margin-left:2px; display:inline-flex; align-items:center; gap:4px; }
   .live-tag .dot{ width:5px; height:5px; border-radius:50%; background:var(--mint); animation:blink 1.6s ease-in-out infinite; }
@@ -82,9 +88,9 @@
     button, .navbtn, .bottom-navbtn, .mini-btn, .action-btn{ -webkit-tap-highlight-color:transparent; }
   }
   .navbtn{ background:transparent; border:1px solid transparent; color:var(--ink-muted); font-family:var(--font-body);
-    font-size:13px; font-weight:600; padding:8px 14px; border-radius:20px; cursor:pointer; }
-  .navbtn:hover{ color:var(--ink); background:var(--bg-input); }
-  .navbtn.active{ color:var(--mint-deep); background:var(--mint-tint); border-color:var(--mint-line); }
+    font-size:13px; font-weight:700; padding:8px 15px; border-radius:20px; cursor:pointer; transition:.18s cubic-bezier(.34,1.56,.5,1); }
+  .navbtn:hover{ color:var(--ink); background:var(--bg-input); transform:translateY(-1px); }
+  .navbtn.active{ color:var(--mint-deep); background:var(--mint-tint); border-color:var(--mint-line); box-shadow:0 4px 12px -4px rgba(55,179,74,0.35); }
   .wallet{ display:flex; align-items:center; gap:8px; font-family:var(--font-mono); font-size:12.5px;
     background:var(--bg-panel); border:1px solid var(--border); padding:7px 12px; border-radius:20px; }
   .wallet b{ color:var(--bean-deep); }
@@ -127,7 +133,8 @@
   .wrap{ max-width:1080px; margin:0 auto; padding:20px 16px 0; }
   .view{ display:none; } .view.active{ display:block; }
   .pagehead{ margin-bottom:16px; }
-  .pagehead h1{ font-size:23px; font-weight:800; letter-spacing:-0.02em; line-height:1.25; } .pagehead p{ font-size:12.5px; color:var(--ink-muted); margin-top:5px; line-height:1.5; }
+  .pagehead h1{ font-family:var(--font-display); font-size:29px; font-weight:400; letter-spacing:0; line-height:1.2; color:var(--ink); } .pagehead p{ font-size:12.5px; color:var(--ink-muted); margin-top:6px; line-height:1.5; }
+  .pagehead h1::after{ content:''; display:block; width:38px; height:5px; border-radius:6px; margin-top:8px; background:linear-gradient(90deg, var(--mint), var(--lime)); }
   .tickers{ display:grid; grid-template-columns:repeat(auto-fill, minmax(140px,1fr)); gap:8px; margin-bottom:14px; }
   .ticker{ background:var(--bg-panel); border:1px solid var(--border); border-radius:18px; padding:13px 13px 11px; cursor:pointer; transition:transform .2s cubic-bezier(.34,1.56,.5,1), box-shadow .18s, border-color .18s; box-shadow:var(--shadow-xs); }
   .ticker:hover{ border-color:var(--mint-line); transform:translateY(-3px); box-shadow:var(--shadow-sm); }
@@ -139,17 +146,20 @@
   .ticker-price{ font-family:var(--font-mono); font-size:13px; font-weight:700; }
   .grid2{ display:grid; grid-template-columns:1.5fr 1fr; gap:14px; }
   @media(max-width:820px){ .grid2{ grid-template-columns:1fr; } .tickers{ grid-template-columns:repeat(2,1fr); } }
-  .panel{ background:var(--bg-panel); border:1px solid var(--border); border-radius:22px; padding:18px; margin-bottom:14px; box-shadow:var(--shadow-xs); }
-  .panel-title{ font-size:11px; font-weight:700; color:var(--ink-muted); letter-spacing:.06em; text-transform:uppercase; margin-bottom:14px; display:flex; justify-content:space-between; }
+  .panel{ background:var(--bg-panel); border:1px solid var(--border); border-radius:22px; padding:18px; margin-bottom:14px; box-shadow:var(--shadow-xs); transition:box-shadow .2s, border-color .2s; }
+  .panel:hover{ box-shadow:var(--shadow-sm); }
+  .panel-title{ font-size:13px; font-weight:700; color:var(--ink); letter-spacing:0; text-transform:none; margin-bottom:14px; display:flex; justify-content:flex-start; align-items:center; }
+  .panel-title::before{ content:''; display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--lime); margin-right:8px; flex-shrink:0; box-shadow:0 0 0 3px var(--lime-tint); }
+  .panel-title .countdown{ margin-left:auto; }
   .countdown{ font-family:var(--font-mono); color:var(--bean-deep); font-weight:700; }
   .chart-svg{ width:100%; height:140px; display:block; }
   .price-dock{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:14px; }
   .dock-card{ background:var(--bg-input); border:1px solid var(--border); border-radius:16px; padding:12px; transition:transform .15s; }
   .dock-card:hover{ transform:translateY(-1px); }
-  .dock-card .l{ font-size:11px; color:var(--ink-muted); } .dock-card .v{ font-family:var(--font-mono); font-size:19px; font-weight:800; margin-top:4px; }
+  .dock-card .l{ font-size:11px; color:var(--ink-muted); } .dock-card .v{ font-family:var(--font-display); font-weight:400; font-size:23px; margin-top:4px; letter-spacing:.01em; }
   .dock-card.buy .v{ color:var(--lime); } .dock-card.sell .v{ color:var(--mint); }
   .spread-line{ margin-top:10px; font-size:11.5px; color:var(--ink-faint); text-align:center; }
-  .ext-ref{ margin-top:14px; background:var(--bg-input); border:1px solid var(--border); border-radius:12px; padding:11px 13px; }
+  .ext-ref{ margin-top:14px; background:var(--bg-input); border:1px solid var(--border); border-radius:16px; padding:11px 13px; }
   .ext-ref .row1{ display:flex; justify-content:space-between; align-items:baseline; }
   .ext-ref .lbl{ font-size:11px; color:var(--ink-muted); } .ext-ref .val{ font-family:var(--font-mono); font-size:14px; font-weight:700; color:var(--bean-deep); }
   .ext-ref .src{ font-size:10px; color:var(--ink-faint); margin-top:2px; }
@@ -158,7 +168,9 @@
   .weight-legend{ display:flex; justify-content:space-between; font-size:10px; color:var(--ink-faint); margin-top:5px; }
   .stat-grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:10px; }
   .stat-card{ background:var(--bg-input); border:1px solid var(--border); border-radius:16px; padding:12px; text-align:center; }
-  .stat-card .v{ font-family:var(--font-mono); font-size:17px; font-weight:800; color:var(--mint); } .stat-card .l{ font-size:10.5px; color:var(--ink-muted); margin-top:3px; }
+  .stat-card{ transition:transform .18s cubic-bezier(.34,1.56,.5,1), box-shadow .18s; }
+  .stat-card:hover{ transform:translateY(-2px); box-shadow:var(--shadow-sm); }
+  .stat-card .v{ font-family:var(--font-display); font-size:22px; font-weight:400; color:var(--mint-deep); } .stat-card .l{ font-size:10.5px; color:var(--ink-muted); margin-top:3px; }
   .feed{ display:flex; flex-direction:column; max-height:230px; overflow-y:auto; }
   .feed-item{ display:flex; justify-content:space-between; padding:9px 2px; font-size:12px; border-bottom:1px solid var(--border-soft); }
   .feed-item .tag{ font-family:var(--font-mono); font-weight:700; margin-right:6px; }
@@ -173,8 +185,8 @@
   .field{ margin-bottom:16px; } .field-label{ font-size:12.5px; color:var(--ink-muted); margin-bottom:8px; }
   .trade-cols{ display:grid; grid-template-columns:1fr 1fr; gap:14px; } @media(max-width:820px){ .trade-cols{ grid-template-columns:1fr; } }
   .trade-card{ background:var(--bg-panel); border:1px solid var(--border); border-radius:22px; padding:18px; box-shadow:var(--shadow-xs); }
-  .trade-card h3{ font-size:14px; margin-bottom:2px; } .trade-card .sub{ font-size:11.5px; color:var(--ink-muted); margin-bottom:14px; }
-  .big-price{ font-family:var(--font-mono); font-size:30px; font-weight:800; margin:10px 0 4px; }
+  .trade-card h3{ font-family:var(--font-display); font-weight:400; font-size:17px; margin-bottom:2px; } .trade-card .sub{ font-size:11.5px; color:var(--ink-muted); margin-bottom:14px; }
+  .big-price{ font-family:var(--font-display); font-size:38px; font-weight:400; margin:10px 0 4px; letter-spacing:.01em; }
   .trade-card.sell-card .big-price{ color:var(--mint); } .trade-card.buy-card .big-price{ color:var(--lime); }
   .stock-line{ font-size:12px; color:var(--ink-muted); margin-bottom:14px; font-family:var(--font-mono); }
   .action-btn{ width:100%; padding:13px; border-radius:16px; border:none; font-weight:800; font-size:13.5px; letter-spacing:-0.01em; cursor:pointer; color:#fff;
@@ -212,7 +224,7 @@
   .conn-badge.fail{ color:#B23A4C; background:var(--red-tint); border:1px solid var(--red-line); }
 
   .announce-banner{ background:linear-gradient(120deg, var(--lime-tint), var(--mint-tint)); border:1px solid var(--lime-line);
-    border-radius:14px; padding:12px 16px; margin-bottom:14px; font-size:12.5px; display:flex; gap:10px; align-items:flex-start; }
+    border-radius:18px; padding:13px 16px; margin-bottom:14px; font-size:12.5px; display:flex; gap:10px; align-items:flex-start; }
   .announce-banner b{ display:block; font-size:13px; margin-bottom:2px; }
   .plus-panel{ position:relative; overflow:hidden; background:linear-gradient(135deg, var(--mint-tint), var(--lime-tint)); border-color:var(--mint-line); }
   .guide-jumpnav{ display:flex; gap:6px; overflow-x:auto; padding-bottom:6px; margin-bottom:16px; -webkit-overflow-scrolling:touch; }
@@ -246,7 +258,7 @@
   .plus-perks li{ display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--ink); position:relative; z-index:1; }
   .plus-perks li::before{ content:'✓'; display:flex; align-items:center; justify-content:center; width:16px; height:16px;
     border-radius:50%; background:var(--mint); color:#fff; font-size:10px; font-weight:800; flex-shrink:0; }
-  .drop-banner{ border-radius:14px; padding:14px 16px; margin-bottom:14px; font-size:13px; border:1px solid; }
+  .drop-banner{ border-radius:18px; padding:14px 16px; margin-bottom:14px; font-size:13px; border:1px solid; }
   .drop-banner.wait{ background:var(--bean-tint); border-color:var(--bean-line); color:#8A6300; }
   .drop-banner.live{ background:var(--mint-tint); border-color:var(--mint-line); color:var(--mint-deep); }
   .drop-banner.ended{ background:var(--red-tint); border-color:var(--red-line); color:#B23A4C; }
@@ -744,7 +756,7 @@
         ① 이 약관은 서비스 화면에 게시하거나 기타의 방법으로 회원에게 공지함으로써 효력이
         발생합니다.<br>
         ② 회사는 관련 법령을 위배하지 않는 범위에서 이 약관을 개정할 수 있으며, 개정 시 적용일자
-        및 개정사유를 명시하여 적용일 최소 7일 전(회원에게 불리한 변경은 30일 전)부터 공지합니다.<br>
+        및 개정사유를 명시하여 적용일 최소 7일 전(회원에게 불리한 변경은 30일 전)부터 공지합���다.<br>
         ③ 회원이 개정약관 시행일까지 명시적으로 거부 의사를 표시하지 않으면 개정약관에 동의한
         것으로 봅니다.<br><br>
 
@@ -866,7 +878,7 @@
         현황에 맞게 정확히 채워야 해요.<br><br>
 
         <b style="color:var(--ink);">1. 수집하는 개인정보 항목</b><br>
-        · 필수: 이름, 이메일, 비밀번호(암호화 저장)<br>
+        · 필수: ���름, 이메일, 비밀번호(암호화 저장)<br>
         · 선택: 휴대폰 번호(본인인증 시), 결제 비밀번호(PIN, 암호화 저장)<br>
         · 거래 관련: 계좌이체 시 입금자명·은행명·계좌번호, 출금 신청 시 수취 계좌정보, 매입신청
         상품정보, 구매·판매·보관·정산 내역, 선물하기 이용 시 받는 사람 이메일<br>
