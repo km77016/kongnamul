@@ -111,6 +111,7 @@ DEFAULT_SETTINGS = {
     'fast_track_fee': 5000,         # 매입 빠른처리 수수료 (정산액에서 차감)
     'certificate_fee': 3000,        # 정품 인증서 발급 수수료 (플러스 회원 무료)
     'gift_service_fee': 2000,       # 선물하기 포장/서비스 수수료
+    'referral_bonus_trades': 3,     # 추천인/피추천인 각각에게 지급되는 등급용 보너스 거래횟수 (현금 아님)
     'card_payment_enabled': 0,      # 카드/간편결제 사용 여부. 0=계좌이체만, 1=카드결제도 노출
     'instant_withdraw_enabled': 0,  # 즉시출금 노출 여부. 0=일반(주간 일괄정산)만, 1=즉시출금도 노출
 }
@@ -344,6 +345,10 @@ def init_db(force=False):
         price REAL, service_fee REAL, message TEXT, status TEXT DEFAULT 'pending',
         created_at TEXT, claimed_at TEXT, portfolio_item_id TEXT
     );
+    CREATE TABLE IF NOT EXISTS sell_request_photos(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sell_request_id INTEGER, uploaded_by TEXT, data_base64 TEXT, mime_type TEXT, created_at TEXT
+    );
     ''')
     # 기존 DB(이 컬럼이 추가되기 전에 만들어진 market.db)를 위한 간단한 마이그레이션
     try:
@@ -408,6 +413,22 @@ def init_db(force=False):
         pass
     try:
         c.execute('ALTER TABLE users ADD COLUMN name TEXT')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE users ADD COLUMN referral_code TEXT')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE users ADD COLUMN referred_by INTEGER')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE users ADD COLUMN referral_bonus_trades INTEGER DEFAULT 0')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE users ADD COLUMN referral_bonus_claimed INTEGER DEFAULT 0')
     except sqlite3.OperationalError:
         pass
     try:
@@ -608,6 +629,40 @@ def send_verification_email(to_email, code):
 
 def generate_code():
     return f'{secrets.randbelow(1000000):06d}'
+
+
+def generate_referral_code(conn):
+    """중복되지 않는 6자리 추천코드를 만들어요. 현금이 아니라 등급 보너스로만 쓰여서
+    추측하기 쉬워도 큰 문제는 없지만, 그래도 무작위로 생성해요."""
+    alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'  # 헷갈리는 0/O, 1/I 제외
+    for _ in range(20):
+        code = ''.join(secrets.choice(alphabet) for _ in range(6))
+        if not conn.execute('SELECT 1 FROM users WHERE referral_code=?', (code,)).fetchone():
+            return code
+    return secrets.token_hex(4).upper()
+
+
+def maybe_grant_referral_bonus(conn, uid):
+    """유저의 '첫 거래'가 막 체결된 시점에 호출해요. 추천을 받고 가입했는데 아직
+    보너스를 못 받았다면, 추천인과 피추천인 양쪽에 등급용 보너스 거래횟수를 지급해요."""
+    c = conn.cursor()
+    urow = c.execute('SELECT referred_by, referral_bonus_claimed FROM users WHERE id=?', (uid,)).fetchone()
+    if not urow or not urow['referred_by'] or urow['referral_bonus_claimed']:
+        return
+    trade_count = c.execute('SELECT COUNT(*) c FROM trades WHERE user_id=?', (uid,)).fetchone()['c']
+    if trade_count != 1:
+        return  # 정확히 "첫 거래"인 시점에만 지급해요
+    bonus = int(get_setting('referral_bonus_trades'))
+    referrer_id = urow['referred_by']
+    c.execute('UPDATE users SET referral_bonus_trades = referral_bonus_trades + ?, referral_bonus_claimed=1 WHERE id=?',
+              (bonus, uid))
+    c.execute('UPDATE users SET referral_bonus_trades = referral_bonus_trades + ? WHERE id=?',
+              (bonus, referrer_id))
+    referrer = c.execute('SELECT email FROM users WHERE id=?', (referrer_id,)).fetchone()
+    if referrer:
+        push_notification(referrer_id, 'referral_bonus',
+            f'🎉 추천한 친구가 첫 거래를 완료해서 등급 보너스 {bonus}회를 받았어요!')
+    push_notification(uid, 'referral_bonus', f'🎉 추천코드로 가입해서 등급 보너스 {bonus}회를 받았어요!')
 
 
 def current_user_id():
@@ -878,8 +933,11 @@ def get_plus_status(uid):
 def get_user_tier(uid):
     conn = get_db()
     row = conn.execute('SELECT COUNT(*) c FROM trades WHERE user_id=?', (uid,)).fetchone()
+    urow = conn.execute('SELECT referral_bonus_trades FROM users WHERE id=?', (uid,)).fetchone()
     conn.close()
-    count = row['c'] if row else 0
+    real_count = row['c'] if row else 0
+    bonus = (urow['referral_bonus_trades'] if urow and urow['referral_bonus_trades'] else 0)
+    count = real_count + bonus
     plus = get_plus_status(uid)
     plus_bonus = PLUS_DISCOUNT if plus['active'] else 0.0
     for threshold, name, discount in LOYALTY_TIERS:
@@ -889,8 +947,10 @@ def get_user_tier(uid):
             if idx > 0:
                 nt, nn, nd = LOYALTY_TIERS[idx-1]
                 next_tier = {'name': nn, 'need': nt - count}
-            return {'tier': name, 'trade_count': count, 'discount': discount + plus_bonus, 'next_tier': next_tier, 'plus': plus}
-    return {'tier': '브론즈', 'trade_count': count, 'discount': plus_bonus, 'next_tier': None, 'plus': plus}
+            return {'tier': name, 'trade_count': count, 'real_trade_count': real_count, 'referral_bonus': bonus,
+                    'discount': discount + plus_bonus, 'next_tier': next_tier, 'plus': plus}
+    return {'tier': '브론즈', 'trade_count': count, 'real_trade_count': real_count, 'referral_bonus': bonus,
+            'discount': plus_bonus, 'next_tier': None, 'plus': plus}
 
 
 def price_for(model_row, grade, side, discount=0.0):
@@ -1054,13 +1114,15 @@ def api_state():
     portfolio = []
     csrf_token = None
     if uid:
-        urow = c.execute('SELECT email, name, is_suspended, phone_number, phone_verified FROM users WHERE id=?', (uid,)).fetchone()
+        urow = c.execute('SELECT email, name, is_suspended, phone_number, phone_verified, referral_code FROM users WHERE id=?', (uid,)).fetchone()
         if urow and urow['is_suspended']:
             session.pop('user_id', None)
             urow = None
         if urow:
+            referred_count = c.execute('SELECT COUNT(*) c FROM users WHERE referred_by=?', (uid,)).fetchone()['c']
             user_info = {'email': urow['email'], 'name': urow['name'], 'tier': get_user_tier(uid),
-                         'phone_number': urow['phone_number'], 'phone_verified': bool(urow['phone_verified'])}
+                         'phone_number': urow['phone_number'], 'phone_verified': bool(urow['phone_verified']),
+                         'referral_code': urow['referral_code'], 'referred_count': referred_count}
             csrf_token = session.get('csrf_token') or issue_csrf_token()
             wrow = c.execute('SELECT balance FROM wallet WHERE user_id=?', (uid,)).fetchone()
             wallet_balance = wrow['balance'] if wrow else 0
@@ -1097,6 +1159,7 @@ def api_state():
             'gift_service_fee': get_setting('gift_service_fee'),
             'card_payment_enabled': bool(get_setting('card_payment_enabled')),
             'instant_withdraw_enabled': bool(get_setting('instant_withdraw_enabled')),
+            'referral_bonus_trades': int(get_setting('referral_bonus_trades')),
             'next_settlement_date': next_settlement_date(),
         },
     })
@@ -1198,9 +1261,16 @@ def api_signup():
 
     pw_hash = generate_password_hash(password)
     ts = now_iso()
-    c.execute('''INSERT INTO users(email,password_hash,name,created_at,agreed_terms_at,agreed_privacy_at,agreed_marketing)
-                 VALUES (?,?,?,?,?,?,?)''',
-              (email, pw_hash, name, ts, ts, ts, 1 if data.get('agree_marketing') else 0))
+    my_referral_code = generate_referral_code(conn)
+    referred_by = None
+    input_ref_code = (data.get('referral_code') or '').strip().upper()
+    if input_ref_code:
+        ref_row = c.execute('SELECT id FROM users WHERE referral_code=?', (input_ref_code,)).fetchone()
+        if ref_row:
+            referred_by = ref_row['id']
+    c.execute('''INSERT INTO users(email,password_hash,name,created_at,agreed_terms_at,agreed_privacy_at,agreed_marketing,
+                 referral_code,referred_by) VALUES (?,?,?,?,?,?,?,?,?)''',
+              (email, pw_hash, name, ts, ts, ts, 1 if data.get('agree_marketing') else 0, my_referral_code, referred_by))
     user_id = c.lastrowid
     c.execute('INSERT INTO wallet(user_id,balance) VALUES (?,?)', (user_id, 0))
 
@@ -1487,6 +1557,7 @@ def api_trade():
             c.execute('INSERT INTO revenue_events(type,amount,user_id,ts) VALUES (?,?,?,?)',
                        ('delivery_fee', delivery_fee, uid, ts))
         buyer = c.execute('SELECT email FROM users WHERE id=?', (uid,)).fetchone()
+        maybe_grant_referral_bonus(conn, uid)
         conn.commit(); conn.close()
         push_admin_notification('new_purchase', f'🛒 새 구매: {model_key} {grade}급 · {int(total):,}원 ({buyer["email"] if buyer else ""})')
         notify_admin_emails('[콩나물] 새 구매가 있었어요',
@@ -2050,6 +2121,135 @@ def api_sell_tracking(req_id):
     if not row:
         conn.close(); return jsonify({'error': 'not found'}), 404
     c.execute('UPDATE sell_requests SET tracking_note=?, updated_at=? WHERE id=?', (tracking, now_iso(), req_id))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+MAX_PHOTO_B64_LEN = 4_500_000  # base64 문자열 기준 대략 3MB 원본 이미지까지 허용
+MAX_PHOTOS_PER_REQUEST = 5
+
+def _save_photo(c, req_id, uploaded_by, data_url):
+    if not data_url or not data_url.startswith('data:image/'):
+        raise ValueError('이미지 형식이 아니에요')
+    if len(data_url) > MAX_PHOTO_B64_LEN:
+        raise ValueError('사진 용량이 너무 커요 (장당 3MB 이하로 올려주세요)')
+    try:
+        header, b64data = data_url.split(',', 1)
+        mime = header.split(';')[0].replace('data:', '')
+    except ValueError:
+        raise ValueError('이미지 형식이 아니에요')
+    if mime not in ('image/jpeg', 'image/png', 'image/webp'):
+        raise ValueError('JPG/PNG/WEBP 형식만 올릴 수 있어요')
+    c.execute('INSERT INTO sell_request_photos(sell_request_id,uploaded_by,data_base64,mime_type,created_at) VALUES (?,?,?,?,?)',
+              (req_id, uploaded_by, b64data, mime, now_iso()))
+
+
+@app.route('/api/sell/<int:req_id>/photos', methods=['GET'])
+@login_required
+def api_sell_photos_get(req_id):
+    uid = current_user_id()
+    conn = get_db(); c = conn.cursor()
+    row = c.execute('SELECT * FROM sell_requests WHERE id=? AND user_id=?', (req_id, uid)).fetchone()
+    if not row:
+        conn.close(); return jsonify({'error': 'not found'}), 404
+    photos = c.execute('SELECT id, uploaded_by, mime_type, created_at FROM sell_request_photos WHERE sell_request_id=? ORDER BY id',
+                        (req_id,)).fetchall()
+    conn.close()
+    return jsonify({'photos': [dict(p) for p in photos]})
+
+
+@app.route('/api/sell/<int:req_id>/photos', methods=['POST'])
+@login_required
+@csrf_protect
+def api_sell_photos_post(req_id):
+    uid = current_user_id()
+    conn = get_db(); c = conn.cursor()
+    row = c.execute('SELECT * FROM sell_requests WHERE id=? AND user_id=?', (req_id, uid)).fetchone()
+    if not row:
+        conn.close(); return jsonify({'error': 'not found'}), 404
+    if row['status'] not in ('submitted', 'received'):
+        conn.close(); return jsonify({'error': '검수가 시작된 이후에는 사진을 추가할 수 없어요'}), 400
+    existing_count = c.execute('SELECT COUNT(*) c FROM sell_request_photos WHERE sell_request_id=? AND uploaded_by=?',
+                                (req_id, 'seller')).fetchone()['c']
+    data = request.get_json(force=True)
+    photos = data.get('photos') or []
+    if existing_count + len(photos) > MAX_PHOTOS_PER_REQUEST:
+        conn.close(); return jsonify({'error': f'사진은 최대 {MAX_PHOTOS_PER_REQUEST}장까지 올릴 수 있어요'}), 400
+    try:
+        for p in photos:
+            _save_photo(c, req_id, 'seller', p)
+    except ValueError as e:
+        conn.close(); return jsonify({'error': str(e)}), 400
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/sell/<int:req_id>/photos/<int:photo_id>', methods=['DELETE'])
+@login_required
+@csrf_protect
+def api_sell_photo_delete(req_id, photo_id):
+    uid = current_user_id()
+    conn = get_db(); c = conn.cursor()
+    row = c.execute('SELECT * FROM sell_requests WHERE id=? AND user_id=?', (req_id, uid)).fetchone()
+    if not row or row['status'] not in ('submitted', 'received'):
+        conn.close(); return jsonify({'error': '삭제할 수 없는 상태예요'}), 400
+    c.execute("DELETE FROM sell_request_photos WHERE id=? AND sell_request_id=? AND uploaded_by='seller'", (photo_id, req_id))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/photo/<int:photo_id>')
+def api_photo_serve(photo_id):
+    """사진 실제 바이트를 이미지로 스트리밍해요. 목록 API는 base64를 안 실어서 가볍게,
+    실제 화면에 <img src="/api/photo/123">로 붙이면 이 엔드포인트가 렌더링을 담당해요."""
+    conn = get_db()
+    row = conn.execute('SELECT data_base64, mime_type, sell_request_id FROM sell_request_photos WHERE id=?', (photo_id,)).fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'error': 'not found'}), 404
+    uid = current_user_id()
+    is_admin = bool(session.get('admin_id'))
+    if not is_admin:
+        conn2 = get_db()
+        owner = conn2.execute('SELECT user_id FROM sell_requests WHERE id=?', (row['sell_request_id'],)).fetchone()
+        conn2.close()
+        if not uid or not owner or owner['user_id'] != uid:
+            return jsonify({'error': '권한이 없어요'}), 403
+    return Response(base64.b64decode(row['data_base64']), mimetype=row['mime_type'])
+
+
+@app.route('/api/admin/sell-requests/<int:req_id>/photos', methods=['GET'])
+@admin_required
+def api_admin_sell_photos_get(req_id):
+    conn = get_db(); c = conn.cursor()
+    row = c.execute('SELECT id FROM sell_requests WHERE id=?', (req_id,)).fetchone()
+    if not row:
+        conn.close(); return jsonify({'error': 'not found'}), 404
+    photos = c.execute('SELECT id, uploaded_by, mime_type, created_at FROM sell_request_photos WHERE sell_request_id=? ORDER BY id',
+                        (req_id,)).fetchall()
+    conn.close()
+    return jsonify({'photos': [dict(p) for p in photos]})
+
+
+@app.route('/api/admin/sell-requests/<int:req_id>/photos', methods=['POST'])
+@admin_required
+@csrf_protect
+def api_admin_sell_photos_post(req_id):
+    conn = get_db(); c = conn.cursor()
+    row = c.execute('SELECT id FROM sell_requests WHERE id=?', (req_id,)).fetchone()
+    if not row:
+        conn.close(); return jsonify({'error': 'not found'}), 404
+    data = request.get_json(force=True)
+    photos = data.get('photos') or []
+    existing_count = c.execute('SELECT COUNT(*) c FROM sell_request_photos WHERE sell_request_id=? AND uploaded_by=?',
+                                (req_id, 'admin')).fetchone()['c']
+    if existing_count + len(photos) > MAX_PHOTOS_PER_REQUEST:
+        conn.close(); return jsonify({'error': f'사진은 최대 {MAX_PHOTOS_PER_REQUEST}장까지 올릴 수 있어요'}), 400
+    try:
+        for p in photos:
+            _save_photo(c, req_id, 'admin', p)
+    except ValueError as e:
+        conn.close(); return jsonify({'error': str(e)}), 400
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -3101,7 +3301,7 @@ SETTINGS_BOUNDS = {
     'tick_seconds': (5, 86400), 'instant_withdraw_fee': (0, 0.2),
     'plus_monthly_fee': (0, 100000), 'fast_track_fee': (0, 100000),
     'certificate_fee': (0, 50000), 'gift_service_fee': (0, 50000),
-    'card_payment_enabled': (0, 1), 'instant_withdraw_enabled': (0, 1),
+    'card_payment_enabled': (0, 1), 'instant_withdraw_enabled': (0, 1), 'referral_bonus_trades': (0, 30),
 }
 
 @app.route('/api/admin/settings')
@@ -3212,6 +3412,7 @@ def api_admin_sell_payout(req_id):
     prev_stock = c.execute('SELECT qty FROM stock WHERE model_key=? AND grade=?', (row['model_key'], row['final_grade'])).fetchone()
     c.execute('UPDATE stock SET qty=qty+1 WHERE model_key=? AND grade=?', (row['model_key'], row['final_grade']))
     notify_wishlist_if_restocked(c, row['model_key'], row['final_grade'], prev_stock and prev_stock['qty'] == 0)
+    maybe_grant_referral_bonus(conn, row['user_id'])
     conn.commit(); conn.close()
     write_audit('admin', session.get('admin_username'), 'sell_payout', f'id={req_id} amount={row["final_price"]} fast_track_fee={ft_fee}')
     write_audit('admin', session.get('admin_username'), 'inventory_auto_add', f'{row["model_key"]} {row["final_grade"]} +1 (from sell_request #{req_id})')

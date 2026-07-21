@@ -665,9 +665,73 @@ async function loadSellRequests(){
         <span class="mono" style="font-size:11px; color:var(--ink-faint);">${fmtTime(req.created_at)}</span>
       </div>
       <div style="font-size:12px; color:var(--ink-muted); margin-top:6px;">예상가 ${won(req.estimated_price)}${req.final_price?` · 최종가 ${won(req.final_price)} (${req.final_grade}급)`:''}${req.note?` · 메모: ${req.note}`:''}${req.admin_note?` · 관리자메모: ${req.admin_note}`:''}</div>
+      <button class="btn" style="margin-top:8px;" onclick="toggleAdminSellPhotos(${req.id})">📷 사진 보기/추가</button>
+      <div id="adminSellPhotoArea-${req.id}"></div>
       <div style="margin-top:8px;">${actions}</div>
     </div>`;
   }).join('');
+}
+let adminSellPhotosOpen = new Set();
+let adminSellPhotosCache = {};
+async function toggleAdminSellPhotos(id){
+  const area = document.getElementById(`adminSellPhotoArea-${id}`);
+  if(adminSellPhotosOpen.has(id)){
+    adminSellPhotosOpen.delete(id);
+    area.innerHTML = '';
+    return;
+  }
+  adminSellPhotosOpen.add(id);
+  const r = await api(`/api/admin/sell-requests/${id}/photos`);
+  adminSellPhotosCache[id] = r ? r.photos : [];
+  renderAdminSellPhotoArea(id);
+}
+function renderAdminSellPhotoArea(id){
+  const area = document.getElementById(`adminSellPhotoArea-${id}`);
+  if(!area) return;
+  const photos = adminSellPhotosCache[id] || [];
+  const sellerPhotos = photos.filter(p=>p.uploaded_by==='seller');
+  const adminPhotos = photos.filter(p=>p.uploaded_by==='admin');
+  const thumb = p => `<img src="/api/photo/${p.id}" style="width:72px; height:72px; object-fit:cover; border-radius:8px; border:1px solid var(--border-soft); margin:4px 4px 0 0;">`;
+  area.innerHTML = `
+    <div style="margin-top:8px; padding:10px; background:var(--bg-input); border-radius:10px;">
+      <div class="field-label">판매자가 올린 사진 (${sellerPhotos.length})</div>
+      <div>${sellerPhotos.length ? sellerPhotos.map(thumb).join('') : '<span class="empty-state" style="padding:6px 0;">없음</span>'}</div>
+      <div class="field-label" style="margin-top:8px;">검수 사진 (${adminPhotos.length}/5)</div>
+      <div>${adminPhotos.map(thumb).join('')}</div>
+      ${adminPhotos.length<5 ? `<input type="file" accept="image/*" multiple style="margin-top:6px;" onchange="uploadAdminSellPhotos(${id}, this.files)">` : ''}
+    </div>`;
+}
+function adminResizeImageFile(file, maxDim=1280, quality=0.82){
+  return new Promise((resolve, reject)=>{
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = (e)=>{ img.src = e.target.result; };
+    reader.onerror = reject;
+    img.onload = ()=>{
+      let {width, height} = img;
+      if(width > maxDim || height > maxDim){
+        const scale = maxDim / Math.max(width, height);
+        width = Math.round(width*scale); height = Math.round(height*scale);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+async function uploadAdminSellPhotos(id, fileList){
+  if(!fileList || fileList.length===0) return;
+  const dataUrls = await Promise.all(Array.from(fileList).slice(0,5).map(f=>adminResizeImageFile(f)));
+  const r = await api(`/api/admin/sell-requests/${id}/photos`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({photos:dataUrls})});
+  if(r){
+    toast('검수 사진을 올렸어요');
+    const rr = await api(`/api/admin/sell-requests/${id}/photos`);
+    adminSellPhotosCache[id] = rr ? rr.photos : [];
+    renderAdminSellPhotoArea(id);
+  }
 }
 let pendingInspectGrade = {};
 function setInspectGrade(id, g){
@@ -1002,6 +1066,7 @@ const SETTINGS_META = [
   {k:'fast_track_fee', l:'매입 빠른처리 수수료', unit:'원', mult:1, hint:'정산액에서 차감돼요'},
   {k:'certificate_fee', l:'정품 인증서 발급비', unit:'원', mult:1, hint:'플러스 회원은 무료'},
   {k:'gift_service_fee', l:'선물하기 서비스료', unit:'원', mult:1, hint:''},
+  {k:'referral_bonus_trades', l:'추천인 보너스', unit:'회', mult:1, hint:'추천인·피추천인 각각에게 지급되는 등급용 보너스 거래횟수 (현금 아님, 첫 거래 완료 시 1회만 지급)'},
 ];
 let currentSettings = {};
 async function loadSettings(){

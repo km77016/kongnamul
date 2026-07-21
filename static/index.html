@@ -218,6 +218,22 @@
   .guide-jumpnav button{ flex:0 0 auto; font-size:11.5px; font-weight:600; color:var(--ink-muted); background:var(--bg-panel);
     border:1px solid var(--border); padding:7px 13px; border-radius:16px; cursor:pointer; transition:.15s; white-space:nowrap; }
   .guide-jumpnav button:hover{ border-color:var(--mint-line); color:var(--mint-deep); background:var(--mint-tint); }
+  .step-tracker{ display:flex; align-items:flex-start; margin:10px 0 14px; }
+  .step-tracker .step{ flex:1; text-align:center; position:relative; }
+  .step-tracker .step .dot{ width:22px; height:22px; border-radius:50%; background:var(--bg-input); border:2px solid var(--border);
+    margin:0 auto 6px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:800; color:var(--ink-faint); position:relative; z-index:2; }
+  .step-tracker .step.done .dot{ background:var(--mint); border-color:var(--mint); color:#fff; }
+  .step-tracker .step.current .dot{ background:#fff; border-color:var(--mint); color:var(--mint-deep); box-shadow:0 0 0 4px var(--mint-tint); }
+  .step-tracker .step .line{ position:absolute; top:11px; left:-50%; width:100%; height:2px; background:var(--border); z-index:1; }
+  .step-tracker .step:first-child .line{ display:none; }
+  .step-tracker .step.done .line{ background:var(--mint); }
+  .step-tracker .step .lbl{ font-size:10.5px; color:var(--ink-faint); font-weight:600; }
+  .step-tracker .step.done .lbl, .step-tracker .step.current .lbl{ color:var(--ink); }
+  .photo-thumbs{ display:flex; gap:8px; flex-wrap:wrap; margin:8px 0; }
+  .photo-thumbs img{ width:64px; height:64px; object-fit:cover; border-radius:10px; border:1px solid var(--border); }
+  .photo-thumb-wrap{ position:relative; }
+  .photo-thumb-wrap .del{ position:absolute; top:-6px; right:-6px; width:18px; height:18px; border-radius:50%; background:var(--red);
+    color:#fff; border:2px solid #fff; font-size:10px; line-height:1; display:flex; align-items:center; justify-content:center; cursor:pointer; }
   .plus-panel::before{ content:''; position:absolute; top:-60%; right:-8%; width:220px; height:220px;
     background:radial-gradient(circle, rgba(255,255,255,0.65), transparent 70%); pointer-events:none; }
   .plus-panel .panel-title{ display:flex; align-items:center; gap:8px; }
@@ -332,6 +348,8 @@
           <input type="checkbox" id="agreeMarketing" onchange="syncAgreeAll()"> <span>[선택] 마케팅 정보 수신 동의</span>
         </label>
       </div>
+      <div class="field-label" style="margin-top:10px;">추천코드 (선택)</div>
+      <input class="auth-input" id="suReferralCode" placeholder="친구에게 받은 코드가 있다면 입력하세요" style="text-transform:uppercase;">
 
       <button class="action-btn mint" style="margin-top:14px;" onclick="doSignup()">가입하기</button>
     </div>
@@ -486,6 +504,11 @@
         <input class="auth-input" id="phoneCodeInput" maxlength="6" placeholder="인증코드 6자리" style="max-width:160px;">
         <button class="mini-btn" onclick="verifyPhoneCode()" style="margin-top:8px;">확인</button>
       </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">🎁 친구 초대하기</div>
+      <div id="referralPanel"><p class="auth-note">로그인하면 나만의 추천코드가 생겨요</p></div>
     </div>
 
     <div class="panel">
@@ -958,6 +981,7 @@ let selectedModel = 'pro2', selectedGrade = 'A', deliveryMode = 'storage', curre
 let tradeRegion = 'normal';
 let deliveryFlowId = null, deliveryFlowRegion = 'normal';
 let authTab = 'signup', codeSent = false;
+let pendingReferralCode = null;
 let selectedSellModel = 'pro2', selectedSellGrade = 'A';
 let sellRequests = [], depositAccount = null, depositRequests = [], reservations = [];
 const GRADES = [
@@ -1100,7 +1124,13 @@ function renderAuthBox(){
   }
 }
 
-function openAuth(){ document.getElementById('authOverlay').style.display='flex'; }
+function openAuth(){
+  document.getElementById('authOverlay').style.display='flex';
+  if(pendingReferralCode){
+    const el = document.getElementById('suReferralCode');
+    if(el) el.value = pendingReferralCode;
+  }
+}
 function closeAuth(){ document.getElementById('authOverlay').style.display='none'; }
 function switchAuthTab(tab){
   authTab = tab;
@@ -1139,6 +1169,7 @@ async function doSignup(){
   const email = document.getElementById('suEmail').value.trim();
   const code = document.getElementById('suCode').value.trim();
   const password = document.getElementById('suPassword').value;
+  const referral_code = document.getElementById('suReferralCode').value.trim();
   if(!name){ toast('이름을 입력해주세요'); return; }
   if(!codeSent){ toast('먼저 인증코드를 받아주세요'); return; }
   if(!document.getElementById('agreeTerms').checked || !document.getElementById('agreePrivacy').checked){
@@ -1148,7 +1179,7 @@ async function doSignup(){
   const v = await api('/api/auth/verify-code', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email, code})});
   if(!v) return;
   const r = await api('/api/auth/signup', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({name, email, password, agree_terms:true, agree_privacy:true, agree_marketing:marketing})});
+    body: JSON.stringify({name, email, password, agree_terms:true, agree_privacy:true, agree_marketing:marketing, referral_code})});
   if(r){ toast('회원가입 완료! 자동으로 로그인됐어요'); closeAuth(); await refresh(); }
 }
 
@@ -1602,7 +1633,30 @@ function renderSellView(){
   });
   const est = STATE.models[selectedSellModel].prices[selectedSellGrade].buy;
   document.getElementById('sellEstimateLine').textContent = `예상 매입가 ${won(est)} (자가진단 기준, 실제 검수 후 최종 확정)`;
+  renderSellRequestsList();
+}
 
+const SELL_STEPS = [
+  {key:'submitted', label:'접수'}, {key:'received', label:'수령'},
+  {key:'inspected', label:'검수'}, {key:'paid', label:'정산'},
+];
+function renderStepTracker(status){
+  if(status==='rejected' || status==='cancelled'){
+    return `<div class="auth-note" style="color:${status==='rejected'?'var(--red)':'var(--ink-faint)'}; font-weight:600; margin:8px 0;">${status==='rejected'?'❌ 반려됐어요':'신청을 취소했어요'}</div>`;
+  }
+  const idx = SELL_STEPS.findIndex(s=>s.key===status);
+  return `<div class="step-tracker">${SELL_STEPS.map((s,i)=>`
+    <div class="step ${i<idx?'done':''} ${i===idx?'current':''}">
+      <div class="line"></div>
+      <div class="dot">${i<idx?'✓':i+1}</div>
+      <div class="lbl">${s.label}</div>
+    </div>`).join('')}</div>`;
+}
+
+let sellPhotosOpen = new Set();
+let sellPhotosCache = {};
+
+function renderSellRequestsList(){
   const list = document.getElementById('sellRequestList');
   if(!sellRequests || sellRequests.length===0){
     list.innerHTML = `<div class="empty-state"><span class="glyph">📮</span>아직 매입 신청 내역이 없어요</div>`;
@@ -1614,18 +1668,97 @@ function renderSellView(){
     const priceLine = r.status==='paid'
       ? `최종 지급액 ${won(r.final_price)} (${r.final_grade}급)`
       : `예상가 ${won(r.estimated_price)} (자가진단 ${r.self_grade}급)`;
-    return `<div class="port-row" style="grid-template-columns:1fr auto;">
-      <span>
-        <b style="color:${st.color};">● ${st.label}</b><br>
-        ${m ? m.name : r.model_key} · ${priceLine}
-        ${r.admin_note ? `<br><span style="color:var(--ink-faint); font-size:11px;">관리자 메모: ${r.admin_note}</span>` : ''}
-      </span>
-      <span class="port-actions">
-        ${r.status==='submitted' ? `<button class="mini-btn" onclick="cancelSellRequest(${r.id})">신청취소</button>` : ''}
-      </span>
+    const isOpen = sellPhotosOpen.has(r.id);
+    return `<div class="port-row expand" style="display:block;">
+      <div style="display:flex; justify-content:space-between; gap:8px;">
+        <span>${m ? m.name : r.model_key} · ${priceLine}
+        ${r.admin_note ? `<br><span style="color:var(--ink-faint); font-size:11px;">관리자 메모: ${r.admin_note}</span>` : ''}</span>
+        <span class="port-actions">
+          ${r.status==='submitted' ? `<button class="mini-btn" onclick="cancelSellRequest(${r.id})">신청취소</button>` : ''}
+        </span>
+      </div>
+      ${renderStepTracker(r.status)}
+      <button class="mini-btn" onclick="toggleSellPhotos(${r.id})">📷 사진 ${isOpen?'닫기':'보기/추가'}</button>
+      <div id="sellPhotoArea-${r.id}">${isOpen ? sellPhotoSectionHtml(r) : ''}</div>
     </div>`;
   }).join('');
 }
+
+function sellPhotoSectionHtml(r){
+  const photos = sellPhotosCache[r.id] || [];
+  const canAdd = ['submitted','received'].includes(r.status);
+  const sellerPhotos = photos.filter(p=>p.uploaded_by==='seller');
+  const adminPhotos = photos.filter(p=>p.uploaded_by==='admin');
+  return `
+    <div style="margin-top:10px; padding-top:10px; border-top:1px dashed var(--border);">
+      <div class="field-label">내가 올린 사진 (${sellerPhotos.length}/5)</div>
+      <div class="photo-thumbs">
+        ${sellerPhotos.map(p=>`<div class="photo-thumb-wrap"><img src="/api/photo/${p.id}">
+          ${canAdd?`<span class="del" onclick="deleteSellPhoto(${r.id},${p.id})">✕</span>`:''}</div>`).join('')}
+        ${canAdd && sellerPhotos.length<5 ? `<label class="photo-thumb-wrap" style="width:64px; height:64px; border:1.5px dashed var(--border); border-radius:10px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:22px; color:var(--ink-faint);">
+          +<input type="file" accept="image/*" multiple style="display:none;" onchange="uploadSellPhotos(${r.id}, this.files)"></label>` : ''}
+      </div>
+      ${adminPhotos.length ? `<div class="field-label">검수 사진</div><div class="photo-thumbs">${adminPhotos.map(p=>`<img src="/api/photo/${p.id}">`).join('')}</div>` : ''}
+      ${!canAdd && sellerPhotos.length===0 && adminPhotos.length===0 ? '<p class="auth-note">등록된 사진이 없어요</p>' : ''}
+    </div>`;
+}
+
+async function toggleSellPhotos(id){
+  if(sellPhotosOpen.has(id)){
+    sellPhotosOpen.delete(id);
+  } else {
+    sellPhotosOpen.add(id);
+    if(!sellPhotosCache[id]){
+      const r = await api(`/api/sell/${id}/photos`);
+      sellPhotosCache[id] = r ? r.photos : [];
+    }
+  }
+  renderSellRequestsList();
+}
+
+function resizeImageFile(file, maxDim=1280, quality=0.82){
+  return new Promise((resolve, reject)=>{
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = (e)=>{ img.src = e.target.result; };
+    reader.onerror = reject;
+    img.onload = ()=>{
+      let {width, height} = img;
+      if(width > maxDim || height > maxDim){
+        const scale = maxDim / Math.max(width, height);
+        width = Math.round(width*scale); height = Math.round(height*scale);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadSellPhotos(reqId, fileList){
+  if(!fileList || fileList.length===0) return;
+  const dataUrls = await Promise.all(Array.from(fileList).slice(0,5).map(f=>resizeImageFile(f)));
+  const r = await api(`/api/sell/${reqId}/photos`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({photos:dataUrls})});
+  if(r){
+    toast('사진을 올렸어요');
+    const rr = await api(`/api/sell/${reqId}/photos`);
+    sellPhotosCache[reqId] = rr ? rr.photos : [];
+    renderSellRequestsList();
+  }
+}
+
+async function deleteSellPhoto(reqId, photoId){
+  const r = await api(`/api/sell/${reqId}/photos/${photoId}`, {method:'DELETE'});
+  if(r){
+    sellPhotosCache[reqId] = (sellPhotosCache[reqId]||[]).filter(p=>p.id!==photoId);
+    renderSellRequestsList();
+  }
+}
+
+
 
 async function submitSellRequest(){
   if(!requireLogin()) return;
@@ -1657,6 +1790,7 @@ async function loadSellRequests(){
 
 function renderDepositView(){
   renderPlusPanel();
+  renderReferralPanel();
   const cardPanel = document.getElementById('cardPaymentPanel');
   const cardOn = STATE.fees && STATE.fees.card_payment_enabled;
   if(cardPanel) cardPanel.style.display = cardOn ? '' : 'none';
@@ -2097,6 +2231,32 @@ function renderPlusPanel(){
       <button class="action-btn mint" onclick="subscribePlus()" style="position:relative; z-index:1;">플러스 구독하기</button>`;
   }
 }
+function renderReferralPanel(){
+  const el = document.getElementById('referralPanel');
+  if(!el) return;
+  if(!STATE.user){
+    el.innerHTML = '<p class="auth-note">로그인하면 나만의 추천코드가 생겨요</p>';
+    return;
+  }
+  el.innerHTML = `
+    <p style="font-size:12.5px; color:var(--ink-muted); margin-bottom:10px;">
+      친구가 내 코드로 가입하고 첫 거래를 완료하면, 나와 친구 둘 다 등급 보너스 거래 <b style="color:var(--ink);">+${STATE.fees.referral_bonus_trades}회</b>를 받아요!
+      (현금이 아니라 단골등급 산정에만 반영돼요)
+    </p>
+    <div class="field-label">내 추천코드</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
+      <input class="auth-input" style="margin-bottom:0; font-family:var(--font-mono); font-weight:700; letter-spacing:0.1em;" value="${STATE.user.referral_code}" readonly>
+      <button class="mini-btn" onclick="copyReferralLink()">링크 복사</button>
+    </div>
+    <p class="auth-note">지금까지 <b style="color:var(--ink);">${STATE.user.referred_count}명</b>이 내 코드로 가입했어요</p>
+  `;
+}
+function copyReferralLink(){
+  const link = `${location.origin}/?ref=${STATE.user.referral_code}`;
+  navigator.clipboard.writeText(link).then(()=> toast('추천 링크를 복사했어요!'))
+    .catch(()=> toast(link));
+}
+
 async function subscribePlus(){
   if(!requireLogin()) return;
   const fee = STATE.fees.plus_monthly_fee;
@@ -2230,6 +2390,10 @@ function handleViewDeepLink(){
   if(view && allowed.includes(view)){
     currentView = view;
   }
+  const ref = params.get('ref');
+  if(ref){
+    pendingReferralCode = ref.trim().toUpperCase();
+  }
 }
 
 document.addEventListener('click', ()=>{ const tb = document.getElementById('tierBox'); if(tb) tb.classList.remove('open'); });
@@ -2267,7 +2431,12 @@ loadBizInfo();
 loadAnnouncements();
 loadPopular();
 handlePgCallback();
-refresh();
+refresh().then(()=>{
+  if(pendingReferralCode && STATE && !STATE.user){
+    authTab = 'signup'; switchAuthTab('signup'); openAuth();
+    toast(`추천코드 ${pendingReferralCode}가 자동으로 입력됐어요`);
+  }
+});
 setInterval(refresh, 3000); // 서버 상태를 3초마다 폴링 (서버의 자동 tick 결과도 여기서 반영됨)
 setInterval(()=>{ if(STATE && currentView==='trade') renderTradeTickers(); }, 1000); // 드랍 카운트다운 갱신
 setInterval(loadPopular, 60000); // 인기상품은 1분마다 갱신
