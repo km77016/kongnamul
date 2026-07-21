@@ -2473,10 +2473,16 @@ def api_price_history(model_key):
     rows = conn.execute(
         'SELECT mid, ts FROM history WHERE model_key=? AND ts >= ? ORDER BY ts ASC',
         (model_key, since)).fetchall()
-    if not rows:
-        last = conn.execute(
-            'SELECT mid, ts FROM history WHERE model_key=? ORDER BY ts DESC LIMIT 1', (model_key,)).fetchone()
-        rows = [last] if last else []
+    # 사이트를 운영한 지 얼마 안 됐으면(예: 오늘 막 시작), "일/주" 구간 안에 점이 1~2개뿐이라
+    # 선이 안 그려질 수 있어요. 그럴 땐 기간과 무관하게 최근 데이터 최소 개수를 채워서
+    # 항상 뭔가는 보이도록 해요 (완전히 빈 차트보다 나아요).
+    MIN_POINTS = 8
+    was_sparse = len(rows) < MIN_POINTS
+    if was_sparse:
+        rows = conn.execute(
+            'SELECT mid, ts FROM history WHERE model_key=? ORDER BY ts DESC LIMIT ?',
+            (model_key, MIN_POINTS)).fetchall()
+        rows = list(reversed(rows))
     conn.close()
 
     data = [{'mid': r['mid'], 'ts': r['ts']} for r in rows]
@@ -2487,7 +2493,7 @@ def api_price_history(model_key):
         if sampled[-1] != data[-1]:
             sampled.append(data[-1])
         data = sampled
-    return jsonify({'data': data, 'period': period})
+    return jsonify({'data': data, 'period': period, 'sparse': was_sparse})
 
 
 # ---------------- 인기 상품 랭킹 ----------------

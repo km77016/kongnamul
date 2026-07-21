@@ -575,6 +575,7 @@
       <div class="panel">
         <div class="panel-title"><span id="chartTitle">시세 차트</span><span class="countdown" id="countdownText">-</span></div>
         <div class="chart-period-tabs" id="chartPeriodTabs"></div>
+        <div id="chartSparseNote" class="auth-note" style="display:none; margin-top:-4px; margin-bottom:6px;">아직 이 기간에 쌓인 데이터가 적어서, 최근 데이터로 대신 보여드려요.</div>
         <div class="chart-wrap" id="chartWrap">
           <svg class="chart-svg" id="chartSvg" viewBox="0 0 300 100" preserveAspectRatio="none"></svg>
           <div class="chart-tooltip" id="chartTooltip" style="display:none;"></div>
@@ -1455,10 +1456,12 @@ async function setChartPeriod(period){
   renderChartPeriodTabs();
   await loadChartHistory();
 }
+let chartIsSparse = false;
 async function loadChartHistory(){
   lastChartModel = selectedModel; lastChartPeriodLoaded = chartPeriod;
   const r = await api(`/api/price-history/${selectedModel}?period=${chartPeriod}`);
   chartData = r ? r.data : [];
+  chartIsSparse = r ? !!r.sparse : false;
   renderChart();
 }
 
@@ -1473,6 +1476,8 @@ function renderChart(){
   const m = STATE.models[selectedModel];
   document.getElementById('chartTitle').textContent = m.name + ' 시세';
   renderChartPeriodTabs();
+  const sparseNote = document.getElementById('chartSparseNote');
+  if(sparseNote) sparseNote.style.display = chartIsSparse ? '' : 'none';
 
   if(selectedModel !== lastChartModel || chartPeriod !== lastChartPeriodLoaded){
     loadChartHistory();
