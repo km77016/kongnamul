@@ -1,7 +1,7 @@
 {
-  "name": "콩나물 - 에어팟 리셀 마켓",
+  "name": "콩나물 - 애플 기기 리셀 마켓",
   "short_name": "콩나물",
-  "description": "검수완료 에어팟을 안심하고 사고파는 곳",
+  "description": "검수완료 애플 기기를 안심하고 사고파는 곳",
   "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",

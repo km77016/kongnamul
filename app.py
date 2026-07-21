@@ -80,18 +80,36 @@ TOSS_API_BASE = 'https://api.tosspayments.com/v1'
 
 MODEL_DEFAULTS = {
     'pro1': {'code': 'PRO1', 'name': 'AirPods Pro 1세대', 'ratios': {'S': 1.27, 'A': 1.00, 'B': 0.77, 'C': 0.55}, 'mid': 80000,  'floor': 45000,  'ceil': 120000},
-    'pro2': {'code': 'PRO2', 'name': 'AirPods Pro 2세대', 'ratios': {'S': 1.22, 'A': 1.00, 'B': 0.78, 'C': 0.56}, 'mid': 150000, 'floor': 90000,  'ceil': 220000},
+    'pro2': {'code': 'PRO2C', 'name': 'AirPods Pro 2세대 (C타입)', 'ratios': {'S': 1.22, 'A': 1.00, 'B': 0.78, 'C': 0.56}, 'mid': 150000, 'floor': 90000,  'ceil': 220000},
+    'pro2_light': {'code': 'PRO2L', 'name': 'AirPods Pro 2세대 (8핀/라이트닝)', 'ratios': {'S': 1.22, 'A': 1.00, 'B': 0.78, 'C': 0.56}, 'mid': 130000, 'floor': 75000, 'ceil': 190000},
     'pro3': {'code': 'PRO3', 'name': 'AirPods Pro 3세대', 'ratios': {'S': 1.15, 'A': 1.00, 'B': 0.85, 'C': 0.69}, 'mid': 260000, 'floor': 190000, 'ceil': 330000},
     'ap4':  {'code': 'AP4',  'name': 'AirPods 4세대(노캔)', 'ratios': {'S': 1.30, 'A': 1.00, 'B': 0.75, 'C': 0.55}, 'mid': 170000, 'floor': 100000, 'ceil': 240000},
+    'iphone_se2': {'code': 'SE2', 'name': 'iPhone SE 2세대 (2020)', 'ratios': {'S': 1.20, 'A': 1.00, 'B': 0.72, 'C': 0.42}, 'mid': 150000, 'floor': 80000, 'ceil': 220000},
+    'iphone_se3': {'code': 'SE3', 'name': 'iPhone SE 3세대 (2022)', 'ratios': {'S': 1.20, 'A': 1.00, 'B': 0.72, 'C': 0.42}, 'mid': 230000, 'floor': 140000, 'ceil': 320000},
+    'iphone_12mini': {'code': '12MINI', 'name': 'iPhone 12 mini', 'ratios': {'S': 1.20, 'A': 1.00, 'B': 0.70, 'C': 0.40}, 'mid': 280000, 'floor': 180000, 'ceil': 380000},
+    'iphone_13mini': {'code': '13MINI', 'name': 'iPhone 13 mini', 'ratios': {'S': 1.20, 'A': 1.00, 'B': 0.70, 'C': 0.40}, 'mid': 370000, 'floor': 250000, 'ceil': 480000},
+    'watch_se2': {'code': 'WSE2', 'name': 'Apple Watch SE 2세대', 'ratios': {'S': 1.18, 'A': 1.00, 'B': 0.75, 'C': 0.48}, 'mid': 200000, 'floor': 130000, 'ceil': 280000},
+    'watch_s9':  {'code': 'WS9',  'name': 'Apple Watch Series 9', 'ratios': {'S': 1.18, 'A': 1.00, 'B': 0.75, 'C': 0.48}, 'mid': 330000, 'floor': 230000, 'ceil': 430000},
+    'watch_ultra2': {'code': 'WULT2', 'name': 'Apple Watch Ultra 2', 'ratios': {'S': 1.15, 'A': 1.00, 'B': 0.78, 'C': 0.52}, 'mid': 580000, 'floor': 450000, 'ceil': 750000},
 }
 
 # 2026-07-07 실제 검색으로 확인한 참고 시세 (수동 스냅샷). scraper.py로 갱신하거나
 # /api/external_ref 로 직접 업데이트할 수 있음.
+# ⚠️ 아이폰/애플워치는 아직 실제 시세 검색으로 확인 안 된 추정치예요. 관리자 대시보드
+# "시세관리" 탭에서 실제 시세로 꼭 조정해주세요.
 EXTERNAL_REF_DEFAULTS = {
     'pro1': {'avg': 96000,  'note': '중고나라 시세조회 자체 집계 평균가'},
     'pro2': {'avg': 150000, 'note': '풀박스 매물 다수 표본 (13~23만원대 분포)'},
+    'pro2_light': {'avg': 130000, 'note': '추정치 - 실제 시세 확인 필요'},
     'pro3': {'avg': 260000, 'note': '미개봉·새상품급 매물 다수 표본 (25~31만원대)'},
     'ap4':  {'avg': 170000, 'note': '전체세트 매물 표본 부족 · 참고치'},
+    'iphone_se2': {'avg': 150000, 'note': '추정치 - 실제 시세 확인 필요'},
+    'iphone_se3': {'avg': 230000, 'note': '추정치 - 실제 시세 확인 필요'},
+    'iphone_12mini': {'avg': 280000, 'note': '추정치 - 실제 시세 확인 필요'},
+    'iphone_13mini': {'avg': 370000, 'note': '추정치 - 실제 시세 확인 필요'},
+    'watch_se2': {'avg': 200000, 'note': '추정치 - 실제 시세 확인 필요'},
+    'watch_s9':  {'avg': 330000, 'note': '추정치 - 실제 시세 확인 필요'},
+    'watch_ultra2': {'avg': 580000, 'note': '추정치 - 실제 시세 확인 필요'},
 }
 
 GRADES = ['S', 'A', 'B', 'C']
@@ -485,6 +503,31 @@ def init_db(force=False):
         }
         for k, v in biz_defaults.items():
             c.execute('INSERT INTO business_info(key,value) VALUES (?,?)', (k, v))
+
+    # 기존에 이미 운영중인 DB라도(fresh=False), MODEL_DEFAULTS에 새로 추가된 상품이 있으면
+    # 자동으로 채워줘요 (예: 이번에 추가된 아이폰/애플워치/Pro2 8핀 버전 등). 이미 있는
+    # 상품은 절대 건드리지 않아서, 관리자가 시세관리에서 조정해둔 값은 안전해요.
+    existing_keys = {r['key'] for r in c.execute('SELECT key FROM models').fetchall()}
+    for k, m in MODEL_DEFAULTS.items():
+        if k in existing_keys:
+            continue
+        c.execute('''INSERT INTO models(key,code,name,ratio_s,ratio_a,ratio_b,ratio_c,mid,floor_p,ceil_p,
+                     internal_trade_count,is_active,drop_start,drop_end) VALUES (?,?,?,?,?,?,?,?,?,?,0,1,NULL,NULL)''',
+                  (k, m['code'], m['name'], m['ratios']['S'], m['ratios']['A'],
+                   m['ratios']['B'], m['ratios']['C'], m['mid'], m['floor'], m['ceil']))
+        v = m['mid'] * random.uniform(0.96, 0.98)
+        for _ in range(19):
+            v = v * (1 + random.uniform(-0.006, 0.006))
+            c.execute('INSERT INTO history(model_key,mid,ts) VALUES (?,?,?)', (k, round(v), now_iso()))
+        c.execute('INSERT INTO history(model_key,mid,ts) VALUES (?,?,?)', (k, m['mid'], now_iso()))
+        for g in GRADES:
+            qty = random.randint(1, 3) if g in ('S', 'C') else random.randint(2, 6)
+            c.execute('INSERT INTO stock VALUES (?,?,?)', (k, g, qty))
+        ref = EXTERNAL_REF_DEFAULTS.get(k)
+        if ref:
+            c.execute('INSERT OR IGNORE INTO external_ref VALUES (?,?,?,?)', (k, ref['avg'], ref['note'], now_iso()))
+        print(f'[상품 추가] 새 상품을 카탈로그에 채웠어요: {m["name"]} ({k})')
+
     conn.commit()
     conn.close()
 
@@ -1008,8 +1051,8 @@ def do_tick():
                 c.execute('UPDATE price_alerts SET triggered=1 WHERE id=?', (alert['id'],))
         ids = [r['id'] for r in c.execute(
             'SELECT id FROM history WHERE model_key=? ORDER BY id DESC', (key,)).fetchall()]
-        if len(ids) > 20:
-            c.executemany('DELETE FROM history WHERE id=?', [(i,) for i in ids[20:]])
+        if len(ids) > 6000:  # 일/주/월/년 차트가 실제로 의미있으려면 넉넉하게 보관해야 해요
+            c.executemany('DELETE FROM history WHERE id=?', [(i,) for i in ids[6000:]])
     stats = c.execute('SELECT * FROM stats WHERE id=1').fetchone()
     c.execute('UPDATE stats SET total_inspected=? WHERE id=1',
               (stats['total_inspected'] + random.randint(0, 2),))
@@ -1093,8 +1136,9 @@ def api_state():
     my_plus_active = get_plus_status(uid)['active'] if uid else False
     models = {}
     for m in c.execute('SELECT * FROM models').fetchall():
+        # 상단 티커의 작은 미니차트용이라, 여기선 최근 30개만 가져와요 (큰 기간별 차트는 /api/price-history를 따로 써요)
         hist = [r['mid'] for r in c.execute(
-            'SELECT mid FROM history WHERE model_key=? ORDER BY id ASC', (m['key'],)).fetchall()]
+            'SELECT mid FROM history WHERE model_key=? ORDER BY id DESC LIMIT 30', (m['key'],)).fetchall()][::-1]
         stock = {r['grade']: r['qty'] for r in c.execute(
             'SELECT grade,qty FROM stock WHERE model_key=?', (m['key'],)).fetchall()}
         ref = c.execute('SELECT * FROM external_ref WHERE model_key=?', (m['key'],)).fetchone()
@@ -1140,6 +1184,13 @@ def api_state():
                 portfolio.append(item)
 
     stats = dict(c.execute('SELECT * FROM stats WHERE id=1').fetchone())
+    week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    stats['weekly_traders'] = c.execute(
+        'SELECT COUNT(DISTINCT user_id) c FROM trades WHERE ts >= ? AND user_id IS NOT NULL', (week_ago,)
+    ).fetchone()['c']
+    stats['weekly_trades'] = c.execute(
+        'SELECT COUNT(*) c FROM trades WHERE ts >= ?', (week_ago,)
+    ).fetchone()['c']
     conn.close()
     tick_seconds = get_setting('tick_seconds')
     remaining = max(0, round(tick_seconds - (time.time() - LAST_TICK)))
@@ -2405,6 +2456,38 @@ def api_my_wishlist():
     rows = conn.execute('SELECT model_key, grade FROM wishlist WHERE user_id=?', (uid,)).fetchall()
     conn.close()
     return jsonify({'wishlist': [dict(r) for r in rows]})
+
+
+# ---------------- 시세 차트: 기간별 히스토리 ----------------
+
+@app.route('/api/price-history/<model_key>')
+def api_price_history(model_key):
+    period = request.args.get('period', 'week')
+    period_deltas = {
+        'day': timedelta(days=1), 'week': timedelta(days=7),
+        'month': timedelta(days=30), 'year': timedelta(days=365),
+    }
+    delta = period_deltas.get(period, timedelta(days=7))
+    since = (datetime.now(timezone.utc) - delta).isoformat()
+    conn = get_db()
+    rows = conn.execute(
+        'SELECT mid, ts FROM history WHERE model_key=? AND ts >= ? ORDER BY ts ASC',
+        (model_key, since)).fetchall()
+    if not rows:
+        last = conn.execute(
+            'SELECT mid, ts FROM history WHERE model_key=? ORDER BY ts DESC LIMIT 1', (model_key,)).fetchone()
+        rows = [last] if last else []
+    conn.close()
+
+    data = [{'mid': r['mid'], 'ts': r['ts']} for r in rows]
+    MAX_POINTS = 300
+    if len(data) > MAX_POINTS:
+        step = len(data) / MAX_POINTS
+        sampled = [data[int(i * step)] for i in range(MAX_POINTS)]
+        if sampled[-1] != data[-1]:
+            sampled.append(data[-1])
+        data = sampled
+    return jsonify({'data': data, 'period': period})
 
 
 # ---------------- 인기 상품 랭킹 ----------------
