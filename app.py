@@ -10,7 +10,7 @@ import sqlite3, time, random, threading, os, uuid, re, smtplib, secrets, queue, 
 import requests
 from datetime import datetime, timezone, timedelta
 from email.mime.text import MIMEText
-from flask import Flask, jsonify, request, session, Response, stream_with_context
+from flask import Flask, jsonify, request, session, Response, stream_with_context, send_file
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # --- DB 파일 위치 ---
@@ -22,6 +22,20 @@ _OLD_DB_PATH = os.path.join(_APP_DIR, 'market.db')  # 예전 버전(앱 폴더 �
 _DEFAULT_DATA_DIR = os.path.join(os.path.expanduser('~'), 'kongnamul_data')
 DB_PATH = os.environ.get('AIRMRKT_DB_PATH') or os.path.join(_DEFAULT_DATA_DIR, 'market.db')
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+
+if not os.environ.get('AIRMRKT_DB_PATH'):
+    # Render 같은 호스팅은 기본적으로 디스크가 "휘발성"이에요. Persistent Disk를 연결하고
+    # AIRMRKT_DB_PATH 환경변수로 그 안의 경로를 지정하지 않으면, 재배포/재시작마다
+    # 회원·거래 데이터가 통째로 사라질 수 있어요. 로컬 PC에서 그냥 실행하는 거라면
+    # 무시해도 괜찮아요 (기본 위치도 앱 폴더 밖이라 zip 재배포엔 안전해요).
+    print('=' * 60)
+    print('⚠️  AIRMRKT_DB_PATH 환경변수가 설정되어 있지 않아요.')
+    print(f'    지금은 이 위치를 쓰고 있어요: {DB_PATH}')
+    print('    Render 등 클라우드 호스팅이라면, Persistent Disk를 연결하고')
+    print('    AIRMRKT_DB_PATH=/data/market.db 처럼 그 안의 경로를 지정해주세요.')
+    print('    안 그러면 재배포할 때마다 회원·거래 데이터가 사라질 수 있어요.')
+    print('    (로컬 PC에서 실행 중이면 이 경고는 무시하셔도 돼요)')
+    print('=' * 60)
 
 if not os.path.exists(DB_PATH) and os.path.exists(_OLD_DB_PATH):
     # 예전 버전에서 쓰던 market.db가 앱 폴더 안에 남아있으면, 잃어버리지 않도록 새 위치로 옮겨요.
@@ -62,6 +76,22 @@ SMTP_PORT = int(os.environ.get('SMTP_PORT', '587'))
 SMTP_USER = os.environ.get('SMTP_USER')
 SMTP_PASS = os.environ.get('SMTP_PASS')
 DEV_MODE = not (SMTP_HOST and SMTP_USER and SMTP_PASS)
+
+# Gmail 같은 일반 SMTP 계정은 하루 발송량 제한이 있어요(대략 500건 안팎, 계정마다 다름).
+# 여기서 오늘 몇 건 보냈는지 세어뒀다가, 임계값에 가까워지면 관리자 대시보드에 경고를 보여줘요.
+# 앱을 재시작하면 이 카운터는 0으로 리셋돼요(메모리 저장) — 대략적인 경고 용도로 충분해요.
+_EMAIL_SEND_COUNT_TODAY = {'date': None, 'count': 0, 'error_count': 0}
+EMAIL_DAILY_WARNING_THRESHOLD = int(os.environ.get('EMAIL_DAILY_WARNING_THRESHOLD', '400'))
+
+def _track_email_send(success):
+    today = datetime.now(timezone.utc).date().isoformat()
+    if _EMAIL_SEND_COUNT_TODAY['date'] != today:
+        _EMAIL_SEND_COUNT_TODAY['date'] = today
+        _EMAIL_SEND_COUNT_TODAY['count'] = 0
+        _EMAIL_SEND_COUNT_TODAY['error_count'] = 0
+    _EMAIL_SEND_COUNT_TODAY['count'] += 1
+    if not success:
+        _EMAIL_SEND_COUNT_TODAY['error_count'] += 1
 
 CODE_TTL_MINUTES = 5
 CODE_RESEND_COOLDOWN_SECONDS = 60
@@ -130,6 +160,10 @@ DEFAULT_SETTINGS = {
     'certificate_fee': 3000,        # 정품 인증서 발급 수수료 (플러스 회원 무료)
     'gift_service_fee': 2000,       # 선물하기 포장/서비스 수수료
     'referral_bonus_trades': 3,     # 추천인/피추천인 각각에게 지급되는 등급용 보너스 거래횟수 (현금 아님)
+    'bulk_sell_alert_24h': 5,       # 한 유저가 24시간 안에 이 건수를 넘겨 매입신청하면 이상거래로 표시
+    'bulk_sell_alert_7d': 15,       # 한 유저가 7일 안에 이 건수를 넘겨 매입신청하면 이상거래로 표시
+    'site_access_fee': 4900,        # 사이트 이용료(월) - 콩나물 플러스와는 별개의 기본 이용권
+    'trial_days': 7,                # 가입 후 무료로 이용할 수 있는 기간(일)
     'card_payment_enabled': 0,      # 카드/간편결제 사용 여부. 0=계좌이체만, 1=카드결제도 노출
     'instant_withdraw_enabled': 0,  # 즉시출금 노출 여부. 0=일반(주간 일괄정산)만, 1=즉시출금도 노출
 }
@@ -282,7 +316,8 @@ def init_db(force=False):
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
-        created_at TEXT
+        created_at TEXT,
+        is_active INTEGER DEFAULT 1
     );
     CREATE TABLE IF NOT EXISTS bank_accounts(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -449,6 +484,92 @@ def init_db(force=False):
         c.execute('ALTER TABLE users ADD COLUMN referral_bonus_claimed INTEGER DEFAULT 0')
     except sqlite3.OperationalError:
         pass
+    # 이 기능이 추가되기 전에 이미 가입했던 유저는 referral_code가 비어있어서(NULL),
+    # 화면에 문자 그대로 "null"이 찍히는 버그가 있었어요. 코드가 없는 유저 전원에게
+    # 소급으로 코드를 만들어줘요.
+    no_code_users = c.execute('SELECT id FROM users WHERE referral_code IS NULL').fetchall()
+    for u in no_code_users:
+        c.execute('UPDATE users SET referral_code=? WHERE id=?', (generate_referral_code(c), u['id']))
+    try:
+        c.execute('ALTER TABLE models ADD COLUMN photo_base64 TEXT')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE models ADD COLUMN photo_mime TEXT')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE sell_requests ADD COLUMN received_at TEXT')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE sell_requests ADD COLUMN inspected_at TEXT')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE models ADD COLUMN is_paused INTEGER DEFAULT 0')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE models ADD COLUMN pause_reason TEXT')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE users ADD COLUMN deleted_at TEXT')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE sell_requests ADD COLUMN owner_confirmed INTEGER DEFAULT 0')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE users ADD COLUMN signup_ip TEXT')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE users ADD COLUMN referral_flagged INTEGER DEFAULT 0')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE sell_requests ADD COLUMN is_flagged INTEGER DEFAULT 0')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE sell_requests ADD COLUMN flag_reason TEXT')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE users ADD COLUMN access_trial_ends_at TEXT')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE users ADD COLUMN access_expires_at TEXT')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE users ADD COLUMN access_auto_renew INTEGER DEFAULT 1')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE users ADD COLUMN access_last_charged_at TEXT')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE users ADD COLUMN access_trial_shortened INTEGER DEFAULT 0')
+    except sqlite3.OperationalError:
+        pass
+    # 기존에 이미 가입된 유저들(이 기능이 생기기 전)은 갑자기 이용을 못 하게 되면 너무 가혹하니까,
+    # 이 기능이 배포된 시점부터 새로 trial_days 만큼 무료기간을 부여해요.
+    try:
+        _grace_days = int(get_setting('trial_days'))
+    except Exception:
+        _grace_days = 7
+    _grace_until = (datetime.now(timezone.utc) + timedelta(days=_grace_days)).isoformat()
+    c.execute('UPDATE users SET access_trial_ends_at=? WHERE access_trial_ends_at IS NULL', (_grace_until,))
+    try:
+        c.execute('ALTER TABLE admins ADD COLUMN is_active INTEGER DEFAULT 1')
+    except sqlite3.OperationalError:
+        pass
     try:
         c.execute('ALTER TABLE sell_requests ADD COLUMN is_fast_track INTEGER DEFAULT 0')
     except sqlite3.OperationalError:
@@ -462,6 +583,7 @@ def init_db(force=False):
     # (관리자가 대시보드에서 이미 다른 값으로 바꿔뒀다면 건드리지 않아요)
     c.execute("UPDATE business_info SET value='mint.team2026@gmail.com' WHERE key='admin_notify_emails' AND value=''")
     c.execute("INSERT OR IGNORE INTO business_info(key,value) VALUES ('kakao_channel_url','')")
+    c.execute("INSERT OR IGNORE INTO business_info(key,value) VALUES ('return_address','')")
     if fresh:
         for k, m in MODEL_DEFAULTS.items():
             c.execute('''INSERT INTO models(key,code,name,ratio_s,ratio_a,ratio_b,ratio_c,mid,floor_p,ceil_p,
@@ -498,11 +620,12 @@ def init_db(force=False):
             'biz_reg_no': '000-00-00000',
             'mail_order_no': '제0000-서울강남-00000호',
             'address': '서울특별시 강남구 테헤란로 000 (실제 주소로 변경하세요)',
+            'return_address': '서울특별시 강남구 테헤란로 000 (반품/교환 접수처 - 실제 주소로 변경하세요)',
             'phone': '02-0000-0000',
             'email': 'help@example.com',
         }
         for k, v in biz_defaults.items():
-            c.execute('INSERT INTO business_info(key,value) VALUES (?,?)', (k, v))
+            c.execute('INSERT OR REPLACE INTO business_info(key,value) VALUES (?,?)', (k, v))
 
     # 기존에 이미 운영중인 DB라도(fresh=False), MODEL_DEFAULTS에 새로 추가된 상품이 있으면
     # 자동으로 채워줘요 (예: 이번에 추가된 아이폰/애플워치/Pro2 8핀 버전 등). 이미 있는
@@ -624,7 +747,7 @@ def send_email(to_email, subject, body):
     """
     SMTP_HOST/SMTP_USER/SMTP_PASS 환경변수가 설정되어 있으면 실제로 이메일을 발송합니다.
     설정되어 있지 않으면 DEV_MODE로 서버 콘솔에만 출력합니다 (로컬 테스트용).
-    반환값: (sent: bool, mode: 'sent'|'dev_mode'|'error')
+    반환값: (sent: bool, mode: 'sent'|'dev_mode'|'error'|'rate_limited')
     """
     if DEV_MODE:
         print(f'[DEV MODE] {to_email} 로 보낼 메일 [{subject}]: {body}')
@@ -638,9 +761,16 @@ def send_email(to_email, subject, body):
             server.starttls()
             server.login(SMTP_USER, SMTP_PASS)
             server.sendmail(SMTP_USER, [to_email], msg.as_string())
+        _track_email_send(True)
         return True, 'sent'
+    except smtplib.SMTPSenderRefused as e:
+        # Gmail 등에서 하루 발송한도를 넘기면 주로 이 예외로 거절돼요 (예: "5.4.5 Daily user sending limit exceeded")
+        print('이메일 발송 실패 (발송한도 초과 의심):', e)
+        _track_email_send(False)
+        return False, 'rate_limited'
     except Exception as e:
         print('이메일 발송 실패:', e)
+        _track_email_send(False)
         return False, 'error'
 
 
@@ -685,26 +815,45 @@ def generate_referral_code(conn):
     return secrets.token_hex(4).upper()
 
 
+MAX_REFERRAL_BONUSES_PER_REFERRER = int(os.environ.get('MAX_REFERRAL_BONUSES_PER_REFERRER', '30'))
+
 def maybe_grant_referral_bonus(conn, uid):
     """유저의 '첫 거래'가 막 체결된 시점에 호출해요. 추천을 받고 가입했는데 아직
-    보너스를 못 받았다면, 추천인과 피추천인 양쪽에 등급용 보너스 거래횟수를 지급해요."""
+    보너스를 못 받았다면, 추천인과 피추천인 양쪽에 등급용 보너스 거래횟수를 지급해요.
+    다만 어뷰징(자기 자신을 다른 계정으로 추천) 의심 상황은 걸러내요."""
     c = conn.cursor()
-    urow = c.execute('SELECT referred_by, referral_bonus_claimed FROM users WHERE id=?', (uid,)).fetchone()
+    urow = c.execute('SELECT referred_by, referral_bonus_claimed, signup_ip FROM users WHERE id=?', (uid,)).fetchone()
     if not urow or not urow['referred_by'] or urow['referral_bonus_claimed']:
         return
     trade_count = c.execute('SELECT COUNT(*) c FROM trades WHERE user_id=?', (uid,)).fetchone()['c']
     if trade_count != 1:
         return  # 정확히 "첫 거래"인 시점에만 지급해요
-    bonus = int(get_setting('referral_bonus_trades'))
     referrer_id = urow['referred_by']
+    referrer_row = c.execute('SELECT email, signup_ip FROM users WHERE id=?', (referrer_id,)).fetchone()
+    if not referrer_row:
+        return
+
+    # 어뷰징 의심 체크 ① 같은 IP로 가입한 추천인-피추천인 쌍이면 보너스를 안 주고 표시만 해둬요
+    same_ip_suspected = bool(urow['signup_ip']) and urow['signup_ip'] == referrer_row['signup_ip']
+    # 어뷰징 의심 체크 ② 한 명이 추천으로 받을 수 있는 보너스 횟수에 상한을 둬요(무한 자기증식 방지)
+    already_referred_count = c.execute(
+        "SELECT COUNT(*) c FROM users WHERE referred_by=? AND referral_bonus_claimed=1", (referrer_id,)).fetchone()['c']
+    over_cap = already_referred_count >= MAX_REFERRAL_BONUSES_PER_REFERRER
+
+    if same_ip_suspected or over_cap:
+        c.execute('UPDATE users SET referral_bonus_claimed=1, referral_flagged=1 WHERE id=?', (uid,))
+        reason = '동일 IP 가입 의심' if same_ip_suspected else f'추천인당 보너스 한도({MAX_REFERRAL_BONUSES_PER_REFERRER}건) 초과'
+        write_audit('system', 'referral_guard', 'referral_bonus_blocked', f'referred_user={uid} referrer={referrer_id} 사유={reason}')
+        push_admin_notification('referral_flagged', f'⚠️ 추천인 보너스 지급 보류: {reason} (피추천인 #{uid}, 추천인 #{referrer_id})')
+        return
+
+    bonus = int(get_setting('referral_bonus_trades'))
     c.execute('UPDATE users SET referral_bonus_trades = referral_bonus_trades + ?, referral_bonus_claimed=1 WHERE id=?',
               (bonus, uid))
     c.execute('UPDATE users SET referral_bonus_trades = referral_bonus_trades + ? WHERE id=?',
               (bonus, referrer_id))
-    referrer = c.execute('SELECT email FROM users WHERE id=?', (referrer_id,)).fetchone()
-    if referrer:
-        push_notification(referrer_id, 'referral_bonus',
-            f'🎉 추천한 친구가 첫 거래를 완료해서 등급 보너스 {bonus}회를 받았어요!')
+    push_notification(referrer_id, 'referral_bonus',
+        f'🎉 추천한 친구가 첫 거래를 완료해서 등급 보너스 {bonus}회를 받았어요!')
     push_notification(uid, 'referral_bonus', f'🎉 추천코드로 가입해서 등급 보너스 {bonus}회를 받았어요!')
 
 
@@ -950,6 +1099,82 @@ def _settle_plus_expiry(c, uid, email=None):
     return False  # 해지됨
 
 
+def _settle_access_expiry(c, uid, email=None):
+    """유료 이용권이 만료된 유저 한 명을 처리해요: 자동갱신 켜져있고 잔액 충분하면 갱신,
+    아니면 이용 불가 상태로 전환해요. _settle_plus_expiry와 동일한 패턴이에요."""
+    now_dt = datetime.now(timezone.utc)
+    fee = get_setting('site_access_fee')
+    row = c.execute('SELECT access_auto_renew FROM users WHERE id=?', (uid,)).fetchone()
+    if row and row['access_auto_renew']:
+        wrow = c.execute('SELECT balance FROM wallet WHERE user_id=?', (uid,)).fetchone()
+        if wrow and wrow['balance'] >= fee:
+            c.execute('UPDATE wallet SET balance=balance-? WHERE user_id=?', (fee, uid))
+            new_expiry = now_dt + timedelta(days=30)
+            c.execute('UPDATE users SET access_expires_at=?, access_last_charged_at=? WHERE id=?',
+                       (new_expiry.isoformat(), now_iso(), uid))
+            c.execute('INSERT INTO revenue_events(type,amount,user_id,ts) VALUES (?,?,?,?)',
+                       ('site_access_fee', fee, uid, now_iso()))
+            push_notification(uid, 'access_renewed', f'사이트 이용권이 자동 갱신됐어요 ({int(fee):,}원 차감)', {'wallet_changed': True})
+            return True
+    push_notification(uid, 'access_expired', '결제가 안 돼서 이용권이 만료됐어요. 계속 이용하려면 다시 구독해주세요.')
+    if email:
+        send_email(email, '[콩나물] 이용권이 만료됐어요',
+                    '자동갱신 결제에 실패해서(자동갱신이 꺼져있거나 잔액 부족) 사이트 이용권이 만료됐어요. '
+                    '계속 이용하시려면 사이트에서 다시 구독해주세요.')
+    return False
+
+
+def get_access_status(uid):
+    """무료체험 중인지, 유료 이용권이 살아있는지를 한 번에 알려줘요. 트라이얼 기간과
+    유료 구독 기간을 둘 다 확인해서, 둘 중 하나라도 유효하면 이용 가능이에요."""
+    conn = get_db(); c = conn.cursor()
+    row = c.execute('SELECT access_trial_ends_at, access_expires_at, access_auto_renew, access_last_charged_at FROM users WHERE id=?', (uid,)).fetchone()
+    if not row:
+        conn.close()
+        return {'has_access': False, 'reason': 'no_user', 'trial_ends_at': None, 'expires_at': None, 'auto_renew': True, 'refund_eligible': False}
+    now_dt = datetime.now(timezone.utc)
+
+    # ① 무료체험 기간인지 먼저 확인
+    if row['access_trial_ends_at'] and datetime.fromisoformat(row['access_trial_ends_at']) > now_dt:
+        conn.close()
+        return {'has_access': True, 'reason': 'trial', 'trial_ends_at': row['access_trial_ends_at'],
+                'expires_at': None, 'auto_renew': bool(row['access_auto_renew']), 'refund_eligible': False}
+
+    # ② 유료 구독이 만료 시점을 지났는데 아직 정산이 안 됐으면, 조회하는 이 순간 바로 처리해요
+    if row['access_expires_at'] and datetime.fromisoformat(row['access_expires_at']) <= now_dt:
+        _settle_access_expiry(c, uid)
+        conn.commit()
+        row = c.execute('SELECT access_trial_ends_at, access_expires_at, access_auto_renew, access_last_charged_at FROM users WHERE id=?', (uid,)).fetchone()
+    conn.close()
+
+    active = bool(row['access_expires_at']) and datetime.fromisoformat(row['access_expires_at']) > now_dt
+    refund_eligible = False
+    if active and row['access_last_charged_at']:
+        elapsed = (now_dt - datetime.fromisoformat(row['access_last_charged_at'])).total_seconds()
+        refund_eligible = elapsed <= 86400
+    return {'has_access': active, 'reason': 'subscribed' if active else 'expired',
+            'trial_ends_at': row['access_trial_ends_at'], 'expires_at': row['access_expires_at'],
+            'auto_renew': bool(row['access_auto_renew']), 'refund_eligible': refund_eligible}
+
+
+def access_required(fn):
+    """구매/판매/선물 등 핵심 거래 기능에 붙이는 데코레이터예요. 무료체험 중이거나
+    유료 이용권이 살아있어야 통과해요. 로그인 자체나 결제(구독) 액션은 막지 않아요 -
+    그것까지 막으면 이용권을 결제할 방법이 없어지니까요."""
+    from functools import wraps
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        uid = current_user_id()
+        if not uid:
+            return jsonify({'error': '로그인이 필요해요'}), 401
+        status = get_access_status(uid)
+        if not status['has_access']:
+            return jsonify({'error': '무료 체험 기간이 끝났어요. 계속 이용하시려면 이용권을 구독해주세요.',
+                             'access_required': True}), 402
+        return fn(*args, **kwargs)
+    return wrapper
+
+
 def get_plus_status(uid):
     conn = get_db()
     c = conn.cursor()
@@ -1013,6 +1238,11 @@ def external_weight(internal_trade_count):
 
 def do_tick():
     global LAST_TICK
+    # 이 함수는 길고, 중간에 이메일 발송이나 통계 계산 등 실패할 수 있는 부분이 많아요.
+    # LAST_TICK을 맨 끝에서 갱신하면, 함수 중간 어디서든 에러가 나는 순간 카운트다운이
+    # 영원히 "0초"에 멈춰버려요 (다음 시도도 어차피 실패하니까). 그래서 "틱을 시도했다"는
+    # 사실 자체를 맨 먼저 기록해서, 일부가 실패해도 카운트다운만큼은 항상 정확하게 돌아가게 해요.
+    LAST_TICK = time.time()
     conn = get_db()
     c = conn.cursor()
     models = c.execute('SELECT * FROM models').fetchall()
@@ -1053,36 +1283,29 @@ def do_tick():
             'SELECT id FROM history WHERE model_key=? ORDER BY id DESC', (key,)).fetchall()]
         if len(ids) > 6000:  # 일/주/월/년 차트가 실제로 의미있으려면 넉넉하게 보관해야 해요
             c.executemany('DELETE FROM history WHERE id=?', [(i,) for i in ids[6000:]])
-    stats = c.execute('SELECT * FROM stats WHERE id=1').fetchone()
-    c.execute('UPDATE stats SET total_inspected=? WHERE id=1',
-              (stats['total_inspected'] + random.randint(0, 2),))
-    if random.random() < 0.4:
-        key = random.choice(list(MODEL_DEFAULTS.keys()))
-        grade = random.choice(GRADES)
-        prev = c.execute('SELECT qty FROM stock WHERE model_key=? AND grade=?', (key, grade)).fetchone()
-        c.execute('UPDATE stock SET qty=qty+1 WHERE model_key=? AND grade=?', (key, grade))
-        notify_wishlist_if_restocked(c, key, grade, prev and prev['qty'] == 0)
-
     # 보관료가 물건 가치를 위협할 만큼 쌓인 사용자에게 알림 (레벨 1: 70%↑, 레벨 2: 100%↑)
     for item in c.execute('SELECT p.*, u.email FROM portfolio p JOIN users u ON p.user_id=u.id').fetchall():
-        fee = calc_storage_fee(item['ts'], get_plus_status(item['user_id'])['active'])
-        if fee <= 0:
-            continue
-        model_row = c.execute('SELECT * FROM models WHERE key=?', (item['model_key'],)).fetchone()
-        if not model_row:
-            continue
-        value = price_for(model_row, item['grade'], 'buy')
-        ratio = (fee / value) if value > 0 else 0
-        level = 2 if ratio >= 1.0 else (1 if ratio >= 0.7 else 0)
-        if level > 0 and level > (item['risk_notified'] or 0):
-            subject = '[콩나물] 보관료가 물건 가치를 넘었어요' if level == 2 else '[콩나물] 보관 중인 물건을 확인해주세요'
-            body = (f'{item["model_key"]} {item["grade"]}급 보관 아이템의 누적 보관료가 {int(fee):,}원이에요.\n'
-                    f'현재 매도가({int(value):,}원) 대비 {int(ratio*100)}% 수준이라, 계속 두면 매도해도 남는 돈이 '
-                    f'{"거의 없거나 오히려 손해" if level==2 else "많이 줄어들"} 수 있어요.\n'
-                    f'지금 매도하거나 배송 신청을 해서 손해를 막아주세요.')
-            send_email(item['email'], subject, body)
-            c.execute('UPDATE portfolio SET risk_notified=? WHERE id=?', (level, item['id']))
-            push_admin_notification('at_risk', f'매각위기: {item["email"]}님의 {item["model_key"]} {item["grade"]}급 (보관료 {int(ratio*100)}%)')
+        try:
+            fee = calc_storage_fee(item['ts'], get_plus_status(item['user_id'])['active'])
+            if fee <= 0:
+                continue
+            model_row = c.execute('SELECT * FROM models WHERE key=?', (item['model_key'],)).fetchone()
+            if not model_row:
+                continue
+            value = price_for(model_row, item['grade'], 'buy')
+            ratio = (fee / value) if value > 0 else 0
+            level = 2 if ratio >= 1.0 else (1 if ratio >= 0.7 else 0)
+            if level > 0 and level > (item['risk_notified'] or 0):
+                subject = '[콩나물] 보관료가 물건 가치를 넘었어요' if level == 2 else '[콩나물] 보관 중인 물건을 확인해주세요'
+                body = (f'{item["model_key"]} {item["grade"]}급 보관 아이템의 누적 보관료가 {int(fee):,}원이에요.\n'
+                        f'현재 매도가({int(value):,}원) 대비 {int(ratio*100)}% 수준이라, 계속 두면 매도해도 남는 돈이 '
+                        f'{"거의 없거나 오히려 손해" if level==2 else "많이 줄어들"} 수 있어요.\n'
+                        f'지금 매도하거나 배송 신청을 해서 손해를 막아주세요.')
+                send_email(item['email'], subject, body)
+                c.execute('UPDATE portfolio SET risk_notified=? WHERE id=?', (level, item['id']))
+                push_admin_notification('at_risk', f'매각위기: {item["email"]}님의 {item["model_key"]} {item["grade"]}급 (보관료 {int(ratio*100)}%)')
+        except Exception as e:
+            print('storage-fee-alert 처리 중 오류(이 항목만 건너뜀):', item['id'], e)
             notify_admin_emails('[콩나물] 매각위기 아이템 발생',
                 f'{item["email"]}님의 {item["model_key"]} {item["grade"]}급 보관 아이템이 위험 상태예요.\n'
                 f'보관료 {int(fee):,}원 / 매도가 {int(value):,}원 ({int(ratio*100)}%)\n'
@@ -1094,6 +1317,12 @@ def do_tick():
         if not u['plus_expires_at'] or datetime.fromisoformat(u['plus_expires_at']) > now_dt:
             continue  # 아직 만료 안 됨
         _settle_plus_expiry(c, u['id'], u['email'])
+
+    # 사이트 이용권 자동갱신/만료 처리도 마찬가지로, 사이트에 안 들어와도 계속 갱신 시도되게 해요
+    for u in c.execute('SELECT id, email, access_expires_at FROM users WHERE access_expires_at IS NOT NULL').fetchall():
+        if not u['access_expires_at'] or datetime.fromisoformat(u['access_expires_at']) > now_dt:
+            continue
+        _settle_access_expiry(c, u['id'], u['email'])
 
     # 매주 일요일(한국시간) 출금 일괄정산 리마인더 - 하루에 한 번만 보내요
     global _last_settlement_reminder_date
@@ -1125,6 +1354,42 @@ def scheduler_loop():
             print('tick error:', e)
 
 
+BACKUP_DIR = os.path.join(os.path.dirname(DB_PATH), 'backups')
+BACKUP_RETENTION_DAYS = int(os.environ.get('BACKUP_RETENTION_DAYS', '14'))
+BACKUP_INTERVAL_SECONDS = int(os.environ.get('BACKUP_INTERVAL_SECONDS', str(24 * 3600)))
+
+def backup_database():
+    """SQLite의 공식 백업 API를 써서, 서비스가 켜져있는 도중에도(쓰기 진행 중이어도) 안전하게
+    복사해요. Persistent Disk가 재배포로부터는 지켜주지만, 파일 손상이나 실수로 잘못된
+    마이그레이션이 도는 것까지는 못 막아줘서, 이런 시점복구용 백업이 별도로 필요해요."""
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    ts = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
+    backup_path = os.path.join(BACKUP_DIR, f'market_{ts}.db')
+    src = sqlite3.connect(DB_PATH)
+    dst = sqlite3.connect(backup_path)
+    try:
+        src.backup(dst)
+    finally:
+        src.close(); dst.close()
+    # 오래된 백업은 정리해요 (디스크 용량 계속 늘어나지 않게)
+    cutoff = time.time() - BACKUP_RETENTION_DAYS * 86400
+    for fname in os.listdir(BACKUP_DIR):
+        fpath = os.path.join(BACKUP_DIR, fname)
+        if os.path.isfile(fpath) and fname.startswith('market_') and os.path.getmtime(fpath) < cutoff:
+            os.remove(fpath)
+    print(f'[DB 백업] 완료: {backup_path}')
+    return backup_path
+
+def backup_scheduler_loop():
+    time.sleep(30)  # 서버가 완전히 뜨고 나서 첫 백업(초기 지연)
+    while True:
+        try:
+            backup_database()
+        except Exception as e:
+            print('DB 백업 실패:', e)
+        time.sleep(BACKUP_INTERVAL_SECONDS)
+
+
 # ---------------- API ----------------
 
 @app.route('/api/state')
@@ -1149,6 +1414,9 @@ def api_state():
             'external_ref': {'avg': ref['avg'], 'note': ref['note'], 'updated_at': ref['updated_at']} if ref else {'avg': m['mid'], 'note': '', 'updated_at': ''},
             'internal_weight_pct': round((1 - external_weight(m['internal_trade_count'])) * 100),
             'drop_start': m['drop_start'], 'drop_end': m['drop_end'], 'is_active': bool(m['is_active']),
+            'has_photo': bool(m['photo_base64']) if 'photo_base64' in m.keys() else False,
+            'is_paused': bool(m['is_paused']) if 'is_paused' in m.keys() else False,
+            'pause_reason': m['pause_reason'] if 'pause_reason' in m.keys() else None,
         }
     feed = [dict(r) for r in c.execute(
         'SELECT model_key,grade,side,price,label,ts FROM trades ORDER BY id DESC LIMIT 10').fetchall()]
@@ -1166,7 +1434,8 @@ def api_state():
             referred_count = c.execute('SELECT COUNT(*) c FROM users WHERE referred_by=?', (uid,)).fetchone()['c']
             user_info = {'email': urow['email'], 'name': urow['name'], 'tier': get_user_tier(uid),
                          'phone_number': urow['phone_number'], 'phone_verified': bool(urow['phone_verified']),
-                         'referral_code': urow['referral_code'], 'referred_count': referred_count}
+                         'referral_code': urow['referral_code'], 'referred_count': referred_count,
+                         'access': get_access_status(uid)}
             csrf_token = session.get('csrf_token') or issue_csrf_token()
             wrow = c.execute('SELECT balance FROM wallet WHERE user_id=?', (uid,)).fetchone()
             wallet_balance = wrow['balance'] if wrow else 0
@@ -1191,6 +1460,14 @@ def api_state():
     stats['weekly_trades'] = c.execute(
         'SELECT COUNT(*) c FROM trades WHERE ts >= ?', (week_ago,)
     ).fetchone()['c']
+    # 평균 검수 소요시간(분) - 최근 완료된 50건 기준, 수령시각~검수완료시각 실측값
+    avg_row = c.execute('''
+        SELECT AVG((julianday(inspected_at) - julianday(received_at)) * 1440) AS avg_min
+        FROM (SELECT inspected_at, received_at FROM sell_requests
+              WHERE inspected_at IS NOT NULL AND received_at IS NOT NULL
+              ORDER BY inspected_at DESC LIMIT 50)
+    ''').fetchone()
+    stats['avg_inspection_minutes'] = round(avg_row['avg_min'], 1) if avg_row and avg_row['avg_min'] is not None else None
     conn.close()
     tick_seconds = get_setting('tick_seconds')
     remaining = max(0, round(tick_seconds - (time.time() - LAST_TICK)))
@@ -1211,6 +1488,8 @@ def api_state():
             'card_payment_enabled': bool(get_setting('card_payment_enabled')),
             'instant_withdraw_enabled': bool(get_setting('instant_withdraw_enabled')),
             'referral_bonus_trades': int(get_setting('referral_bonus_trades')),
+            'site_access_fee': get_setting('site_access_fee'),
+            'trial_days': int(get_setting('trial_days')),
             'next_settlement_date': next_settlement_date(),
         },
     })
@@ -1249,6 +1528,12 @@ def api_send_code():
     conn.commit(); conn.close()
 
     sent, mode = send_verification_email(email, code)
+    if mode in ('error', 'rate_limited'):
+        # 예전엔 여기서도 ok:True를 내려줘서, 유저는 "발송됐다"고 믿고 안 오는 코드를
+        # 하염없이 기다리는 문제가 있었어요. 이제 명확하게 실패를 알려줘요.
+        msg = ('메일 발송이 오늘 한도를 넘은 것 같아요. 관리자에게 문의해주세요.' if mode == 'rate_limited'
+               else '인증 메일 발송에 실패했어요. 잠시 후 다시 시도해주세요.')
+        return jsonify({'error': msg, 'mode': mode}), 502
     resp = {'ok': True, 'mode': mode, 'expires_in_minutes': CODE_TTL_MINUTES}
     if mode == 'dev_mode':
         resp['dev_code'] = code  # 로컬 테스트 편의용. 실제 운영에서는 SMTP 설정 시 이 필드가 사라집니다.
@@ -1319,9 +1604,29 @@ def api_signup():
         ref_row = c.execute('SELECT id FROM users WHERE referral_code=?', (input_ref_code,)).fetchone()
         if ref_row:
             referred_by = ref_row['id']
+
+    # 무료체험 기간 부여. 다만 최근 90일 안에 같은 IP로 이미 가입한 계정이 있으면
+    # 중복가입으로 무료체험을 노리는 것일 수 있어서, 체험 없이 바로 유료로 시작하게 해요.
+    # (IP는 가족/회사 와이파이 등으로 여러 명이 같이 쓸 수 있어서 100% 확실한 신호는 아니에요 -
+    # 그래서 계정 자체를 막지는 않고, 체험기간만 안 주는 선에서 그쳐요.)
+    trial_days = int(get_setting('trial_days'))
+    ip_dup_since = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
+    ip_dup = None
+    if request.remote_addr:
+        ip_dup = c.execute(
+            'SELECT id FROM users WHERE signup_ip=? AND created_at >= ? LIMIT 1',
+            (request.remote_addr, ip_dup_since)).fetchone()
+    if ip_dup:
+        trial_ends = now_iso()  # 이미 지난 시각 -> 체험기간 없이 바로 유료 전환 필요
+        trial_shortened = 1
+    else:
+        trial_ends = (datetime.now(timezone.utc) + timedelta(days=trial_days)).isoformat()
+        trial_shortened = 0
+
     c.execute('''INSERT INTO users(email,password_hash,name,created_at,agreed_terms_at,agreed_privacy_at,agreed_marketing,
-                 referral_code,referred_by) VALUES (?,?,?,?,?,?,?,?,?)''',
-              (email, pw_hash, name, ts, ts, ts, 1 if data.get('agree_marketing') else 0, my_referral_code, referred_by))
+                 referral_code,referred_by,signup_ip,access_trial_ends_at,access_trial_shortened) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)''',
+              (email, pw_hash, name, ts, ts, ts, 1 if data.get('agree_marketing') else 0, my_referral_code, referred_by,
+               request.remote_addr, trial_ends, trial_shortened))
     user_id = c.lastrowid
     c.execute('INSERT INTO wallet(user_id,balance) VALUES (?,?)', (user_id, 0))
 
@@ -1335,6 +1640,12 @@ def api_signup():
                    (now_iso(), item_id, g['id']))
         claimed_count += 1
     conn.commit(); conn.close()
+
+    # 감사로그/알림은 DB 커넥션을 각자 새로 열기 때문에, 위 트랜잭션이 완전히 끝난 뒤에 호출해야
+    # "database is locked" 에러가 안 나요 (트랜잭션이 열린 채로 다른 커넥션이 쓰려고 하면 잠겨요).
+    if trial_shortened:
+        write_audit('system', 'access_guard', 'trial_skipped_dup_ip', f'user_id={user_id} email={email} ip={request.remote_addr}')
+        push_admin_notification('trial_dup_ip', f'⚠️ 동일 IP 중복가입 의심으로 무료체험 없이 가입됨: {email}')
 
     session['user_id'] = user_id
     token = issue_csrf_token()
@@ -1373,6 +1684,51 @@ def api_login():
 @app.route('/api/auth/logout', methods=['POST'])
 def api_logout():
     session.pop('user_id', None)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/auth/delete-account', methods=['POST'])
+@login_required
+@csrf_protect
+def api_delete_account():
+    """회원탈퇴예요. 실제로 행을 지우진 않고 개인식별정보만 익명화해요 — 전자상거래법상
+    거래기록은 5년, 대금결제 기록은 5년 보존의무가 있어서 완전 삭제하면 오히려 법 위반이에요."""
+    uid = current_user_id()
+    data = request.get_json(force=True)
+    password = data.get('password') or ''
+
+    conn = get_db(); c = conn.cursor()
+    urow = c.execute('SELECT * FROM users WHERE id=?', (uid,)).fetchone()
+    if not urow or not check_password_hash(urow['password_hash'], password):
+        conn.close(); return jsonify({'error': '비밀번호가 일치하지 않아요'}), 400
+
+    wallet = c.execute('SELECT balance FROM wallet WHERE user_id=?', (uid,)).fetchone()
+    if wallet and wallet['balance'] > 0:
+        conn.close(); return jsonify({'error': f'잔액 {int(wallet["balance"]):,}원이 남아있어요. 먼저 출금해주세요'}), 400
+
+    pending_sell = c.execute(
+        "SELECT COUNT(*) c FROM sell_requests WHERE user_id=? AND status IN ('submitted','received','inspected')",
+        (uid,)).fetchone()['c']
+    if pending_sell > 0:
+        conn.close(); return jsonify({'error': '진행중인 매입신청이 있어요. 완료되거나 취소된 후 탈퇴해주세요'}), 400
+
+    pending_withdraw = c.execute(
+        "SELECT COUNT(*) c FROM withdrawal_requests WHERE user_id=? AND status='pending'", (uid,)).fetchone()['c']
+    if pending_withdraw > 0:
+        conn.close(); return jsonify({'error': '처리중인 출금 신청이 있어요. 완료된 후 탈퇴해주세요'}), 400
+
+    portfolio_count = c.execute('SELECT COUNT(*) c FROM portfolio WHERE user_id=?', (uid,)).fetchone()['c']
+    if portfolio_count > 0:
+        conn.close(); return jsonify({'error': '보관함에 아직 물건이 남아있어요. 배송 또는 매도 후 탈퇴해주세요'}), 400
+
+    ts = now_iso()
+    anon_email = f'deleted-user-{uid}@withdrawn.local'
+    c.execute('''UPDATE users SET email=?, password_hash=?, name=NULL, phone_number=NULL, phone_verified=0,
+                 payment_pin_hash=NULL, is_suspended=1, deleted_at=? WHERE id=?''',
+              (anon_email, generate_password_hash(secrets.token_hex(32)), ts, uid))
+    conn.commit(); conn.close()
+    session.pop('user_id', None)
+    write_audit('user', f'user#{uid}', 'delete_account', '본인 요청으로 탈퇴, 개인식별정보 익명화')
     return jsonify({'ok': True})
 
 
@@ -1544,6 +1900,7 @@ def api_verify_phone_code():
 
 @app.route('/api/trade', methods=['POST'])
 @login_required
+@access_required
 @csrf_protect
 @rate_limit(15, 10)  # 같은 IP에서 10초에 15회까지 (드랍 순간 연타 방어)
 def api_trade():
@@ -1561,6 +1918,10 @@ def api_trade():
         conn.close()
         return jsonify({'error': 'invalid model/grade'}), 400
     ts = now_iso()
+    if m['is_paused']:
+        conn.close()
+        reason_suffix = f' ({m["pause_reason"]})' if m['pause_reason'] else ''
+        return jsonify({'error': f'지금 이 상품은 거래가 일시중지됐어요{reason_suffix}. 잠시 후 다시 시도해주세요.'}), 400
     if action == 'buy':
         ok, err = verify_pin(uid, data.get('pin'))
         if not ok:
@@ -1622,6 +1983,7 @@ def api_trade():
 
 @app.route('/api/portfolio/<item_id>/sell', methods=['POST'])
 @login_required
+@access_required
 @csrf_protect
 def api_portfolio_sell(item_id):
     uid = current_user_id()
@@ -1630,6 +1992,10 @@ def api_portfolio_sell(item_id):
     if not item:
         conn.close(); return jsonify({'error': 'not found'}), 404
     m = c.execute('SELECT * FROM models WHERE key=?', (item['model_key'],)).fetchone()
+    if m['is_paused']:
+        conn.close()
+        reason_suffix = f' ({m["pause_reason"]})' if m['pause_reason'] else ''
+        return jsonify({'error': f'지금 이 상품은 거래가 일시중지됐어요{reason_suffix}. 잠시 후 다시 시도해주세요.'}), 400
     price = price_for(m, item['grade'], 'buy', get_user_tier(uid)['discount'])
     storage_fee = calc_storage_fee(item['ts'], get_plus_status(uid)['active'])
     net = max(0, price - storage_fee)
@@ -1936,10 +2302,82 @@ def api_plus_cancel_refund():
     return jsonify({'ok': True, 'refunded': fee})
 
 
+@app.route('/api/access/subscribe', methods=['POST'])
+@login_required
+@csrf_protect
+@rate_limit(10, 300)
+def api_access_subscribe():
+    uid = current_user_id()
+    data = request.get_json(force=True, silent=True) or {}
+    ok, err = verify_pin(uid, data.get('pin'))
+    if not ok:
+        return jsonify({'error': err}), 403
+    fee = get_setting('site_access_fee')
+    conn = get_db(); c = conn.cursor()
+    wallet_row = c.execute('SELECT balance FROM wallet WHERE user_id=?', (uid,)).fetchone()
+    if not wallet_row or wallet_row['balance'] < fee:
+        conn.close(); return jsonify({'error': '잔액이 부족해요. 먼저 충전해주세요'}), 400
+    user_row = c.execute('SELECT access_expires_at FROM users WHERE id=?', (uid,)).fetchone()
+    now = datetime.now(timezone.utc)
+    base = now
+    if user_row['access_expires_at']:
+        existing_expiry = datetime.fromisoformat(user_row['access_expires_at'])
+        if existing_expiry > now:
+            base = existing_expiry
+    new_expiry = base + timedelta(days=30)
+    c.execute('UPDATE wallet SET balance=balance-? WHERE user_id=? AND balance>=?', (fee, uid, fee))
+    if c.rowcount == 0:
+        conn.close(); return jsonify({'error': '잔액이 부족해요'}), 400
+    c.execute('UPDATE users SET access_expires_at=?, access_last_charged_at=? WHERE id=?',
+              (new_expiry.isoformat(), now_iso(), uid))
+    c.execute('INSERT INTO revenue_events(type,amount,user_id,ts) VALUES (?,?,?,?)',
+               ('site_access_fee', fee, uid, now_iso()))
+    conn.commit(); conn.close()
+    write_audit('user', str(uid), 'access_subscribe', f'fee={fee} until={new_expiry.isoformat()}')
+    return jsonify({'ok': True, 'expires_at': new_expiry.isoformat(), 'fee': fee})
+
+
+@app.route('/api/access/toggle-autorenew', methods=['POST'])
+@login_required
+@csrf_protect
+def api_access_toggle_autorenew():
+    uid = current_user_id()
+    conn = get_db(); c = conn.cursor()
+    row = c.execute('SELECT access_auto_renew FROM users WHERE id=?', (uid,)).fetchone()
+    new_val = 0 if row['access_auto_renew'] else 1
+    c.execute('UPDATE users SET access_auto_renew=? WHERE id=?', (new_val, uid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'auto_renew': bool(new_val)})
+
+
+@app.route('/api/access/cancel-refund', methods=['POST'])
+@login_required
+@csrf_protect
+def api_access_cancel_refund():
+    """결제 후 24시간 이내면 전액 환불하고 즉시 만료시켜요."""
+    uid = current_user_id()
+    conn = get_db(); c = conn.cursor()
+    row = c.execute('SELECT access_expires_at, access_last_charged_at FROM users WHERE id=?', (uid,)).fetchone()
+    if not row or not row['access_expires_at'] or not row['access_last_charged_at']:
+        conn.close(); return jsonify({'error': '환불 가능한 결제 내역이 없어요'}), 400
+    elapsed = (datetime.now(timezone.utc) - datetime.fromisoformat(row['access_last_charged_at'])).total_seconds()
+    if elapsed > 86400:
+        conn.close(); return jsonify({'error': '결제 후 24시간이 지나서 즉시환불 대상이 아니에요. 대신 자동갱신을 꺼두시면 이번 기간이 끝난 뒤 자동으로 만료돼요'}), 400
+    fee = get_setting('site_access_fee')
+    c.execute('UPDATE wallet SET balance=balance+? WHERE user_id=?', (fee, uid))
+    c.execute('UPDATE users SET access_expires_at=NULL, access_last_charged_at=NULL WHERE id=?', (uid,))
+    c.execute('INSERT INTO revenue_events(type,amount,user_id,ts) VALUES (?,?,?,?)',
+               ('site_access_fee_refund', -fee, uid, now_iso()))
+    conn.commit(); conn.close()
+    write_audit('user', str(uid), 'access_cancel_refund', f'refund={fee}')
+    return jsonify({'ok': True, 'refunded': fee})
+
+
 # ---------------- 선물하기 ----------------
 
 @app.route('/api/gift/send', methods=['POST'])
 @login_required
+@access_required
 @csrf_protect
 @rate_limit(10, 300)
 def api_gift_send():
@@ -2120,6 +2558,7 @@ INSPECTION_ADDRESS = '서울시 강남구 테헤란로 000, 콩나물 검수센�
 
 @app.route('/api/sell/request', methods=['POST'])
 @login_required
+@access_required
 @csrf_protect
 @rate_limit(20, 300)
 def api_sell_request():
@@ -2129,23 +2568,48 @@ def api_sell_request():
     grade = data.get('grade')
     note = (data.get('note') or '').strip()[:500]
     fast_track = bool(data.get('fast_track'))
+    owner_confirmed = bool(data.get('owner_confirmed'))
+    if not owner_confirmed:
+        return jsonify({'error': '본인 소유물임을 확인해주세요'}), 400
     conn = get_db(); c = conn.cursor()
     m = c.execute('SELECT * FROM models WHERE key=?', (model_key,)).fetchone()
     if not m or grade not in GRADES:
         conn.close(); return jsonify({'error': 'invalid model/grade'}), 400
+    if m['is_paused']:
+        conn.close()
+        reason_suffix = f' ({m["pause_reason"]})' if m['pause_reason'] else ''
+        return jsonify({'error': f'지금 이 상품은 거래가 일시중지됐어요{reason_suffix}. 잠시 후 다시 시도해주세요.'}), 400
     estimated = price_for(m, grade, 'buy', get_user_tier(uid)['discount'])
     is_plus = get_plus_status(uid)['active']
     ft_fee = 0 if not fast_track else (get_setting('fast_track_fee') * (PLUS_FEE_DISCOUNT_RATIO if is_plus else 1))
     ts = now_iso()
-    c.execute('''INSERT INTO sell_requests(user_id,model_key,self_grade,note,estimated_price,status,created_at,updated_at,is_fast_track,fast_track_fee)
-                 VALUES (?,?,?,?,?,?,?,?,?,?)''', (uid, model_key, grade, note, estimated, 'submitted', ts, ts, 1 if fast_track else 0, ft_fee))
+    c.execute('''INSERT INTO sell_requests(user_id,model_key,self_grade,note,estimated_price,status,created_at,updated_at,is_fast_track,fast_track_fee,owner_confirmed)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,1)''', (uid, model_key, grade, note, estimated, 'submitted', ts, ts, 1 if fast_track else 0, ft_fee))
     req_id = c.lastrowid
+
+    # 대량/반복 매입신청 탐지 - 장물 유통 등 이상거래 가능성을 조기에 관리자가 인지하도록 표시만 해둬요
+    # (자동으로 막지는 않아요 - 정말 물건이 많은 정상 판매자일 수도 있으니, 최종 판단은 관리자 몫이에요)
+    day_ago = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    week_ago_ts = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    count_24h = c.execute("SELECT COUNT(*) c FROM sell_requests WHERE user_id=? AND created_at >= ?", (uid, day_ago)).fetchone()['c']
+    count_7d = c.execute("SELECT COUNT(*) c FROM sell_requests WHERE user_id=? AND created_at >= ?", (uid, week_ago_ts)).fetchone()['c']
+    limit_24h = get_setting('bulk_sell_alert_24h')
+    limit_7d = get_setting('bulk_sell_alert_7d')
+    flag_reason = None
+    if count_24h > limit_24h:
+        flag_reason = f'24시간 내 매입신청 {count_24h}건 (기준 {int(limit_24h)}건)'
+    elif count_7d > limit_7d:
+        flag_reason = f'7일 내 매입신청 {count_7d}건 (기준 {int(limit_7d)}건)'
+    if flag_reason:
+        c.execute('UPDATE sell_requests SET is_flagged=1, flag_reason=? WHERE id=?', (flag_reason, req_id))
+        push_admin_notification('bulk_sell_flagged', f'⚠️ 대량/반복 매입신청 의심: user#{uid} — {flag_reason}')
+
     conn.commit(); conn.close()
-    write_audit('user', str(uid), 'sell_request_submit', f'id={req_id} model={model_key} grade={grade} fast_track={fast_track}')
+    write_audit('user', str(uid), 'sell_request_submit', f'id={req_id} model={model_key} grade={grade} fast_track={fast_track}' + (f' [FLAGGED: {flag_reason}]' if flag_reason else ''))
     push_admin_notification('new_sellreq', f'{"🚀 빠른처리 " if fast_track else ""}새 매입신청: {model_key} {grade}급 (예상가 {int(estimated):,}원)')
     notify_admin_emails('[콩나물] 새 매입신청이 들어왔어요',
         f'{"🚀 빠른처리 신청이에요.\n" if fast_track else ""}{model_key} {grade}급, 예상가 {int(estimated):,}원.\n'
-        f'"매입신청" 탭에서 확인해주세요.')
+        f'"매입신청" 탭에서 확인해주세요.' + (f'\n\n⚠️ 이상거래 의심: {flag_reason}' if flag_reason else ''))
     return jsonify({'ok': True, 'id': req_id, 'estimated_price': estimated, 'fast_track_fee': ft_fee, 'shipping_address': INSPECTION_ADDRESS})
 
 
@@ -2698,12 +3162,68 @@ def api_admin_login():
         record_login_failure(lock_key)
         write_audit('admin', username, 'login_failed')
         return jsonify({'error': '아이디 또는 비밀번호가 올바르지 않아요'}), 401
+    if not admin['is_active']:
+        write_audit('admin', username, 'login_blocked_inactive')
+        return jsonify({'error': '비활성화된 관리자 계정이에요'}), 403
     clear_login_failures(lock_key)
     session['admin_id'] = admin['id']
     session['admin_username'] = admin['username']
     token = issue_csrf_token()
     write_audit('admin', username, 'login')
     return jsonify({'ok': True, 'admin': {'username': admin['username']}, 'csrf_token': token})
+
+
+@app.route('/api/admin/admins')
+@admin_required
+def api_admin_list_admins():
+    conn = get_db()
+    rows = conn.execute('SELECT id, username, created_at, is_active FROM admins ORDER BY id').fetchall()
+    conn.close()
+    return jsonify({'admins': [dict(r) for r in rows]})
+
+
+@app.route('/api/admin/admins', methods=['POST'])
+@admin_required
+@csrf_protect
+def api_admin_create_admin():
+    """새 관리자 계정을 만들어요. 3명이 같이 쓰신다면, 계정을 나눠서 감사로그에서
+    누가 뭘 했는지 구분되게 해주세요 (공유 계정 대신)."""
+    data = request.get_json(force=True)
+    username = (data.get('username') or '').strip()
+    if not username or len(username) < 3:
+        return jsonify({'error': '아이디는 3자 이상이어야 해요'}), 400
+    if not re.match(r'^[a-zA-Z0-9_]+$', username):
+        return jsonify({'error': '아이디는 영문/숫자/밑줄만 가능해요'}), 400
+    conn = get_db(); c = conn.cursor()
+    existing = c.execute('SELECT id FROM admins WHERE username=?', (username,)).fetchone()
+    if existing:
+        conn.close(); return jsonify({'error': '이미 있는 아이디예요'}), 400
+    new_password = secrets.token_urlsafe(9)
+    c.execute('INSERT INTO admins(username, password_hash, created_at, is_active) VALUES (?,?,?,1)',
+              (username, generate_password_hash(new_password), now_iso()))
+    conn.commit(); conn.close()
+    write_audit('admin', session.get('admin_username'), 'create_admin', username)
+    return jsonify({'ok': True, 'username': username, 'password': new_password})
+
+
+@app.route('/api/admin/admins/<int:admin_id>/toggle-active', methods=['POST'])
+@admin_required
+@csrf_protect
+def api_admin_toggle_admin_active(admin_id):
+    if admin_id == session.get('admin_id'):
+        return jsonify({'error': '본인 계정은 여기서 비활성화할 수 없어요'}), 400
+    conn = get_db(); c = conn.cursor()
+    target = c.execute('SELECT * FROM admins WHERE id=?', (admin_id,)).fetchone()
+    if not target:
+        conn.close(); return jsonify({'error': '존재하지 않는 관리자예요'}), 404
+    active_count = c.execute('SELECT COUNT(*) c FROM admins WHERE is_active=1').fetchone()['c']
+    if target['is_active'] and active_count <= 1:
+        conn.close(); return jsonify({'error': '마지막 남은 활성 관리자 계정은 비활성화할 수 없어요'}), 400
+    new_state = 0 if target['is_active'] else 1
+    c.execute('UPDATE admins SET is_active=? WHERE id=?', (new_state, admin_id))
+    conn.commit(); conn.close()
+    write_audit('admin', session.get('admin_username'), 'toggle_admin_active', f'{target["username"]} -> {"활성" if new_state else "비활성"}')
+    return jsonify({'ok': True, 'is_active': bool(new_state)})
 
 
 @app.route('/api/admin/logout', methods=['POST'])
@@ -2868,6 +3388,18 @@ def api_admin_revenue():
     total_wallet_balance = conn.execute("SELECT COALESCE(SUM(balance),0) v FROM wallet").fetchone()['v']
     suspended_users = conn.execute("SELECT COUNT(*) v FROM users WHERE is_suspended=1").fetchone()['v']
 
+    # ---- 전자금융거래법 선불업 등록 면제기준(2024.9 개정) 모니터링 ----
+    # 발행잔액 30억원 / 연간 총발행액 500억원 미만이면 등록 면제 대상일 수 있어요(정확한 판단은 변호사 확인 필요).
+    # "발행"은 보수적으로 잡아서, 계좌이체로 충전한 금액 + 매입대금으로 잔액에 크레딧된 금액을 모두 포함해요.
+    year_ago = (datetime.now(timezone.utc) - timedelta(days=365)).isoformat()
+    charged_12m = conn.execute(
+        "SELECT COALESCE(SUM(amount),0) v FROM deposit_requests WHERE status='approved' AND created_at >= ?",
+        (year_ago,)).fetchone()['v']
+    sell_credited_12m = conn.execute(
+        "SELECT COALESCE(SUM(final_price),0) v FROM sell_requests WHERE status='paid' AND updated_at >= ?",
+        (year_ago,)).fetchone()['v']
+    issued_total_12m = charged_12m + sell_credited_12m
+
     conn.close()
     return jsonify({
         'all_time': all_time, 'today': today_stats,
@@ -2878,6 +3410,12 @@ def api_admin_revenue():
             'pending_sellreq': pending_sellreq, 'pending_withdrawals': pending_withdrawals,
             'pending_deposits': pending_deposits, 'total_wallet_balance': total_wallet_balance,
             'suspended_users': suspended_users,
+        },
+        'efsa': {
+            'issued_balance_now': total_wallet_balance,
+            'issued_balance_threshold': 3_000_000_000,
+            'issued_total_12m': issued_total_12m,
+            'issued_total_12m_threshold': 50_000_000_000,
         },
     })
 
@@ -3064,6 +3602,46 @@ def api_admin_audit_log():
     return jsonify({'logs': [dict(r) for r in rows]})
 
 
+@app.route('/api/admin/backups')
+@admin_required
+def api_admin_list_backups():
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    files = []
+    for fname in sorted(os.listdir(BACKUP_DIR), reverse=True):
+        if fname.startswith('market_') and fname.endswith('.db'):
+            fpath = os.path.join(BACKUP_DIR, fname)
+            files.append({
+                'filename': fname,
+                'size_kb': round(os.path.getsize(fpath) / 1024, 1),
+                'created_at': datetime.fromtimestamp(os.path.getmtime(fpath), tz=timezone.utc).isoformat(),
+            })
+    return jsonify({'backups': files, 'retention_days': BACKUP_RETENTION_DAYS,
+                     'interval_hours': BACKUP_INTERVAL_SECONDS / 3600})
+
+
+@app.route('/api/admin/backups/run', methods=['POST'])
+@admin_required
+@csrf_protect
+def api_admin_run_backup():
+    try:
+        path = backup_database()
+        write_audit('admin', session.get('admin_username'), 'manual_backup', os.path.basename(path))
+        return jsonify({'ok': True, 'filename': os.path.basename(path)})
+    except Exception as e:
+        return jsonify({'error': f'백업 실패: {e}'}), 500
+
+
+@app.route('/api/admin/backups/<filename>/download')
+@admin_required
+def api_admin_download_backup(filename):
+    # 경로 조작 방지 - 파일명만 허용하고, 이 폴더 안에 실제로 있는 파일인지 확인해요
+    safe_name = os.path.basename(filename)
+    fpath = os.path.join(BACKUP_DIR, safe_name)
+    if not safe_name.startswith('market_') or not safe_name.endswith('.db') or not os.path.isfile(fpath):
+        return jsonify({'error': 'not found'}), 404
+    return send_file(fpath, as_attachment=True, download_name=safe_name)
+
+
 @app.route('/api/admin/system-info')
 @admin_required
 def api_admin_system_info():
@@ -3086,6 +3664,11 @@ def api_admin_system_info():
         'user_count': user_count,
         'old_location_backup_exists': os.path.exists(_OLD_DB_PATH),
         'old_location_path': _OLD_DB_PATH,
+        'db_path_explicitly_set': bool(os.environ.get('AIRMRKT_DB_PATH')),
+        'email_today_sent': _EMAIL_SEND_COUNT_TODAY['count'] if _EMAIL_SEND_COUNT_TODAY['date'] == datetime.now(timezone.utc).date().isoformat() else 0,
+        'email_today_errors': _EMAIL_SEND_COUNT_TODAY['error_count'] if _EMAIL_SEND_COUNT_TODAY['date'] == datetime.now(timezone.utc).date().isoformat() else 0,
+        'email_warning_threshold': EMAIL_DAILY_WARNING_THRESHOLD,
+        'email_provider': SMTP_HOST or None,
     })
 
 
@@ -3298,7 +3881,13 @@ def api_admin_list_models():
     conn = get_db()
     rows = conn.execute('SELECT * FROM models ORDER BY key').fetchall()
     conn.close()
-    return jsonify({'models': [dict(r) for r in rows]})
+    result = []
+    for r in rows:
+        d = dict(r)
+        d['has_photo'] = bool(d.pop('photo_base64', None))
+        d.pop('photo_mime', None)
+        result.append(d)
+    return jsonify({'models': result})
 
 
 @app.route('/api/admin/models', methods=['POST'])
@@ -3354,6 +3943,26 @@ def api_admin_toggle_model_active(model_key):
     return jsonify({'ok': True, 'is_active': bool(new_state)})
 
 
+@app.route('/api/admin/models/<model_key>/toggle-pause', methods=['POST'])
+@admin_required
+@csrf_protect
+def api_admin_toggle_model_pause(model_key):
+    """숨기기(is_active)와는 달라요 — 정지된 상품은 카탈로그엔 계속 보이지만
+    "판매 일시중지" 배지가 뜨고 실제 구매/매입신청은 막혀요. 가격 급변, 재고 감사,
+    일시적 이슈 등으로 "보이긴 해야 하는데 거래는 막고 싶을 때" 쓰는 기능이에요."""
+    data = request.get_json(force=True) or {}
+    conn = get_db(); c = conn.cursor()
+    m = c.execute('SELECT is_paused FROM models WHERE key=?', (model_key,)).fetchone()
+    if not m:
+        conn.close(); return jsonify({'error': '존재하지 않는 상품이에요'}), 400
+    new_state = 0 if m['is_paused'] else 1
+    reason = (data.get('reason') or '').strip()[:200] if new_state else None
+    c.execute('UPDATE models SET is_paused=?, pause_reason=? WHERE key=?', (new_state, reason, model_key))
+    conn.commit(); conn.close()
+    write_audit('admin', session.get('admin_username'), 'toggle_model_pause', f'{model_key} -> {"정지" if new_state else "재개"} ({reason or ""})')
+    return jsonify({'ok': True, 'is_paused': bool(new_state)})
+
+
 @app.route('/api/admin/models/<model_key>/set-drop', methods=['POST'])
 @admin_required
 @csrf_protect
@@ -3381,6 +3990,60 @@ def api_admin_set_drop(model_key):
     return jsonify({'ok': True})
 
 
+MAX_MODEL_PHOTO_B64_LEN = 4_500_000  # 대략 3MB 원본 이미지까지 허용
+
+@app.route('/api/admin/models/<model_key>/photo', methods=['POST'])
+@admin_required
+@csrf_protect
+def api_admin_set_model_photo(model_key):
+    conn = get_db(); c = conn.cursor()
+    m = c.execute('SELECT key FROM models WHERE key=?', (model_key,)).fetchone()
+    if not m:
+        conn.close(); return jsonify({'error': '존재하지 않는 상품이에요'}), 400
+    data = request.get_json(force=True)
+    data_url = data.get('photo') or ''
+    if not data_url.startswith('data:image/'):
+        conn.close(); return jsonify({'error': '이미지 형식이 아니에요'}), 400
+    if len(data_url) > MAX_MODEL_PHOTO_B64_LEN:
+        conn.close(); return jsonify({'error': '사진 용량이 너무 커요 (3MB 이하로 올려주세요)'}), 400
+    try:
+        header, b64data = data_url.split(',', 1)
+        mime = header.split(';')[0].replace('data:', '')
+    except ValueError:
+        conn.close(); return jsonify({'error': '이미지 형식이 아니에요'}), 400
+    if mime not in ('image/jpeg', 'image/png', 'image/webp'):
+        conn.close(); return jsonify({'error': 'JPG/PNG/WEBP 형식만 올릴 수 있어요'}), 400
+    c.execute('UPDATE models SET photo_base64=?, photo_mime=? WHERE key=?', (b64data, mime, model_key))
+    conn.commit(); conn.close()
+    write_audit('admin', session.get('admin_username'), 'set_model_photo', model_key)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/admin/models/<model_key>/photo', methods=['DELETE'])
+@admin_required
+@csrf_protect
+def api_admin_delete_model_photo(model_key):
+    conn = get_db(); c = conn.cursor()
+    c.execute('UPDATE models SET photo_base64=NULL, photo_mime=NULL WHERE key=?', (model_key,))
+    conn.commit(); conn.close()
+    write_audit('admin', session.get('admin_username'), 'delete_model_photo', model_key)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/model-photo/<model_key>')
+def api_model_photo_serve(model_key):
+    """상품 사진을 실제 이미지로 스트리밍해요. 관리자가 사진을 안 올렸으면 404를 내려서,
+    프론트에서 카테고리 기본 아이콘(에어팟/아이폰/애플워치 일러스트)으로 대체해요."""
+    conn = get_db()
+    row = conn.execute('SELECT photo_base64, photo_mime FROM models WHERE key=?', (model_key,)).fetchone()
+    conn.close()
+    if not row or not row['photo_base64']:
+        return jsonify({'error': 'no photo'}), 404
+    resp = Response(base64.b64decode(row['photo_base64']), mimetype=row['photo_mime'])
+    resp.headers['Cache-Control'] = 'public, max-age=3600'
+    return resp
+
+
 # ---------------- 관리자: 운영 설정 (스프레드/수수료/갱신주기) ----------------
 
 SETTINGS_BOUNDS = {
@@ -3391,6 +4054,8 @@ SETTINGS_BOUNDS = {
     'plus_monthly_fee': (0, 100000), 'fast_track_fee': (0, 100000),
     'certificate_fee': (0, 50000), 'gift_service_fee': (0, 50000),
     'card_payment_enabled': (0, 1), 'instant_withdraw_enabled': (0, 1), 'referral_bonus_trades': (0, 30),
+    'bulk_sell_alert_24h': (1, 100), 'bulk_sell_alert_7d': (1, 300),
+    'site_access_fee': (0, 100000), 'trial_days': (0, 90),
 }
 
 @app.route('/api/admin/settings')
@@ -3447,7 +4112,7 @@ def api_admin_sell_receive(req_id):
     row = c.execute('SELECT * FROM sell_requests WHERE id=?', (req_id,)).fetchone()
     if not row or row['status'] != 'submitted':
         conn.close(); return jsonify({'error': '처리할 수 없는 상태예요'}), 400
-    c.execute('UPDATE sell_requests SET status=?, updated_at=? WHERE id=?', ('received', now_iso(), req_id))
+    c.execute('UPDATE sell_requests SET status=?, updated_at=?, received_at=? WHERE id=?', ('received', now_iso(), now_iso(), req_id))
     conn.commit(); conn.close()
     write_audit('admin', session.get('admin_username'), 'sell_receive', f'id={req_id}')
     push_notification(row['user_id'], 'sell_status', f'매입 신청하신 {row["model_key"]} {row["self_grade"]}급 상품을 수령했어요. 검수를 시작할게요.')
@@ -3467,10 +4132,15 @@ def api_admin_sell_inspect(req_id):
     row = c.execute('SELECT * FROM sell_requests WHERE id=?', (req_id,)).fetchone()
     if not row or row['status'] != 'received':
         conn.close(); return jsonify({'error': '처리할 수 없는 상태예요'}), 400
+    admin_photo_count = c.execute(
+        "SELECT COUNT(*) c FROM sell_request_photos WHERE sell_request_id=? AND uploaded_by='admin'", (req_id,)).fetchone()['c']
+    if admin_photo_count == 0:
+        conn.close()
+        return jsonify({'error': '검수 사진을 최소 1장 첨부한 뒤 등급을 확정해주세요 (분쟁 발생 시 증빙 자료가 돼요)'}), 400
     m = c.execute('SELECT * FROM models WHERE key=?', (row['model_key'],)).fetchone()
     final_price = price_for(m, final_grade, 'buy', get_user_tier(row["user_id"])['discount'])
-    c.execute('UPDATE sell_requests SET status=?, final_grade=?, final_price=?, admin_note=?, updated_at=? WHERE id=?',
-              ('inspected', final_grade, final_price, admin_note, now_iso(), req_id))
+    c.execute('UPDATE sell_requests SET status=?, final_grade=?, final_price=?, admin_note=?, updated_at=?, inspected_at=? WHERE id=?',
+              ('inspected', final_grade, final_price, admin_note, now_iso(), now_iso(), req_id))
     conn.commit(); conn.close()
     write_audit('admin', session.get('admin_username'), 'sell_inspect', f'id={req_id} grade={final_grade} price={final_price}')
     push_notification(row['user_id'], 'sell_status', f'검수가 끝났어요! 최종 {final_grade}급, {int(final_price):,}원 정산 예정이에요.')
@@ -3552,6 +4222,7 @@ load_settings_cache()
 # 워커의 스케줄러를 꺼서 딱 한 곳에서만 돌게 하세요.
 if os.environ.get('AIRMRKT_ENABLE_SCHEDULER', '1') == '1':
     threading.Thread(target=scheduler_loop, daemon=True).start()
+    threading.Thread(target=backup_scheduler_loop, daemon=True).start()
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)

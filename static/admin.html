@@ -74,6 +74,11 @@
   .settle-card .l{ font-size:11px; color:var(--ink-muted); font-weight:600; text-transform:uppercase; letter-spacing:.03em; }
   .settle-card .v{ font-family:var(--font-mono); font-size:22px; font-weight:800; margin:6px 0 4px; }
   .settle-card .sub{ font-size:11px; color:var(--ink-faint); }
+  .efsa-track{ height:10px; border-radius:6px; background:var(--bg-input); overflow:hidden; margin:8px 0 4px; }
+  .efsa-fill{ height:100%; border-radius:6px; transition:width .3s; }
+  .efsa-fill.ok{ background:var(--mint); }
+  .efsa-fill.warn{ background:var(--bean); }
+  .efsa-fill.danger{ background:var(--red); }
   .stat-card:hover{ transform:translateY(-1px); }
   .stat-card .l{ font-size:11px; color:var(--ink-muted); } .stat-card .v{ font-family:var(--font-mono); font-size:19px; font-weight:800; color:var(--mint); margin-top:6px; }
   .stat-card.neg .v{ color:var(--red); }
@@ -167,6 +172,10 @@
       <div class="panel">
         <div class="panel-title">📊 핵심 지표 <button class="btn" onclick="loadRevenue()">새로고침</button></div>
         <div class="stat-grid" id="kpiGrid"></div>
+      </div>
+      <div class="panel" id="efsaPanelWrap">
+        <div class="panel-title">⚖️ 전자금융거래법 선불업 등록 기준 모니터링</div>
+        <div id="efsaPanel"></div>
       </div>
       <div class="panel" style="background:var(--bean-tint); border-color:var(--bean-line);">
         <div class="panel-title">💰 정산 · 출금 한눈에 보기</div>
@@ -331,8 +340,33 @@
         <button class="btn" onclick="tickNow()">지금 시세 갱신 실행</button>
       </div>
       <div class="panel">
+        <div class="panel-title">🗄️ DB 백업 <button class="btn mint" onclick="runBackupNow()">지금 백업 실행</button> <button class="btn" onclick="loadBackups()">새로고침</button></div>
+        <p class="auth-note" style="margin-bottom:10px;">
+          Persistent Disk는 재배포로부터는 지켜주지만, 파일 손상이나 실수로 잘못된 데이터가 들어가는 것까진
+          못 막아줘요. 그래서 자동으로 하루에 한 번, 별도 백업 파일을 만들어둬요. 문제가 생기면 여기서
+          받은 백업파일로 되돌릴 수 있어요 (market.db로 이름 바꿔서 교체).
+        </p>
+        <div id="backupsPanel"></div>
+      </div>
+      <div class="panel">
         <div class="panel-title" style="color:var(--red);">위험 구역</div>
         <button class="btn red" onclick="resetAll()">전체 데이터베이스 초기화</button>
+      </div>
+    </section>
+
+    <section class="view" id="view-admins">
+      <div class="pagehead"><h1>관리자 계정</h1><p>여러 명이 같이 쓰신다면, 계정을 나눠서 감사로그에서 누가 뭘 했는지 구분되게 해주세요.</p></div>
+      <div class="panel">
+        <div class="panel-title">새 관리자 계정 만들기</div>
+        <div class="btn-row" style="align-items:flex-end;">
+          <div><div class="field-label">아이디 (영문/숫자/밑줄)</div><input class="auth-input" id="newAdminUsername" placeholder="예: mint2" style="margin-bottom:0;"></div>
+          <button class="btn mint" onclick="createAdmin()">계정 생성</button>
+        </div>
+        <div id="newAdminResult"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">관리자 계정 목록 <button class="btn" onclick="loadAdminsList()">새로고침</button></div>
+        <div id="adminsListPanel"></div>
       </div>
     </section>
   </div>
@@ -347,13 +381,19 @@ const NAV = [
   {key:'atrisk', label:'매각위기'},
   {key:'products', label:'상품관리'}, {key:'prices', label:'시세관리'}, {key:'accounts', label:'계좌관리'}, {key:'settings', label:'설정'},
   {key:'bizinfo', label:'사업자정보'}, {key:'reviews', label:'리뷰관리'},
-  {key:'notices', label:'공지사항'}, {key:'audit', label:'감사로그'}, {key:'system', label:'시스템'}
+  {key:'notices', label:'공지사항'}, {key:'audit', label:'감사로그'}, {key:'system', label:'시스템'}, {key:'admins', label:'관리자계정'}
 ];
 let currentView = 'revenue';
 let adminInfo = null, csrfToken = null;
 let sellFilter = '', depositFilter = 'pending';
 
 function won(n){ return '₩' + Math.round(n).toLocaleString('ko-KR'); }
+function escapeHtml(str){
+  if(str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
 function fmtTime(iso){ return new Date(iso).toLocaleString('ko-KR'); }
 
 function toast(msg){
@@ -464,7 +504,8 @@ function loadCurrentView(){
   if(currentView==='reviews') loadReviewsAdmin();
   if(currentView==='notices') loadAnnouncementsAdmin();
   if(currentView==='audit') loadAudit();
-  if(currentView==='system') loadSystemInfo();
+  if(currentView==='system'){ loadSystemInfo(); loadBackups(); }
+  if(currentView==='admins') loadAdminsList();
 }
 
 // ---------------- CSV 내보내기 ----------------
@@ -516,9 +557,44 @@ async function loadRevenue(){
   const r = await api('/api/admin/revenue');
   if(!r) return;
   renderKpiGrid(r.kpi);
+  renderEfsaPanel(r.efsa);
   document.getElementById('revenueToday').innerHTML = revenueCards(r.today);
   document.getElementById('revenueAll').innerHTML = revenueCards(r.all_time);
   loadSettlementSummary();
+}
+function efsaBar(label, now, threshold, unit){
+  const pct = Math.min(100, (now/threshold)*100);
+  const cls = pct >= 90 ? 'danger' : (pct >= 60 ? 'warn' : 'ok');
+  return `
+    <div style="margin-bottom:14px;">
+      <div style="display:flex; justify-content:space-between; font-size:12.5px; margin-bottom:2px;">
+        <span>${label}</span><span class="mono" style="font-weight:700;">${won(now)} / ${won(threshold)} (${pct.toFixed(1)}%)</span>
+      </div>
+      <div class="efsa-track"><div class="efsa-fill ${cls}" style="width:${pct}%"></div></div>
+    </div>`;
+}
+function renderEfsaPanel(efsa){
+  const el = document.getElementById('efsaPanel');
+  if(!el || !efsa) return;
+  const maxPct = Math.max(
+    (efsa.issued_balance_now/efsa.issued_balance_threshold)*100,
+    (efsa.issued_total_12m/efsa.issued_total_12m_threshold)*100
+  );
+  const wrap = document.getElementById('efsaPanelWrap');
+  wrap.style.background = maxPct >= 90 ? 'var(--red-tint)' : (maxPct >= 60 ? 'var(--bean-tint)' : '');
+  wrap.style.borderColor = maxPct >= 90 ? 'var(--red-line)' : (maxPct >= 60 ? 'var(--bean-line)' : '');
+  el.innerHTML = `
+    <p style="font-size:11.5px; color:var(--ink-muted); margin-bottom:12px;">
+      2024.9 개정 전자금융거래법 기준, <b>발행잔액 30억원 · 연간 총발행액 500억원</b> 미만이면
+      선불업 등록이 면제될 수 있어요(정확한 적용은 변호사 확인 필요). 계좌이체 충전액과
+      매입대금으로 잔액에 크레딧된 금액을 보수적으로 합산한 추정치예요.
+    </p>
+    ${efsaBar('현재 발행잔액 (유저들이 들고 있는 잔액 총합)', efsa.issued_balance_now, efsa.issued_balance_threshold)}
+    ${efsaBar('최근 12개월 총 발행액 (충전+매입대금 크레딧 누계)', efsa.issued_total_12m, efsa.issued_total_12m_threshold)}
+    ${maxPct >= 60 ? `<div class="auth-note" style="color:${maxPct>=90?'var(--red)':'#8A6100'}; font-weight:600;">
+      ${maxPct>=90 ? '🚨 기준에 매우 근접했어요. 변호사 상담을 서두르세요.' : '⚠️ 기준의 60%를 넘었어요. 미리 법률 상담을 준비하세요.'}
+    </div>` : ''}
+  `;
 }
 async function loadSettlementSummary(){
   const r = await api('/api/admin/settlement-summary');
@@ -579,7 +655,7 @@ async function loadUsers(){
   if(r.users.length===0){ t.innerHTML = '<tr><td class="empty-state">가입한 유저가 없어요</td></tr>'; return; }
   t.innerHTML = `<tr><th>ID</th><th>이름</th><th>이메일</th><th>가입일</th><th>잔액</th><th>보관중</th><th>거래횟수</th><th>등급</th><th>휴대폰</th><th>상태</th><th></th></tr>` +
     r.users.map(u=>`<tr>
-      <td class="mono">${u.id}</td><td>${u.name||'—'}</td><td>${u.email}</td><td class="mono">${fmtTime(u.created_at)}</td>
+      <td class="mono">${u.id}</td><td>${escapeHtml(u.name)||'—'}</td><td>${escapeHtml(u.email)}</td><td class="mono">${fmtTime(u.created_at)}</td>
       <td class="mono">${won(u.balance)}</td><td class="mono">${u.item_count}</td><td class="mono">${u.trade_count}</td>
       <td>${tierOf(u.trade_count)}</td>
       <td>${u.phone_verified ? '✅' : '—'}</td>
@@ -659,12 +735,13 @@ async function loadSellRequests(){
       actions = `<button class="btn mint" onclick="sellPayout(${req.id})">정산 승인 (${won(req.final_price)} 지급)</button>
                   <button class="btn red" onclick="sellReject(${req.id})">반려</button>`;
     }
-    return `<div style="padding:12px 0; border-bottom:1px solid var(--border-soft);">
+    return `<div style="padding:12px 0; border-bottom:1px solid var(--border-soft); ${req.is_flagged ? 'background:var(--red-tint); border-radius:10px; padding-left:8px; padding-right:8px;' : ''}">
       <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px;">
-        <span><span class="pill ${req.status}">${req.status}</span> #${req.id} · ${req.email||'-'} · ${req.model_key} · 자가등급 ${req.self_grade}급</span>
+        <span>${req.is_flagged ? '<span class="pill rejected">⚠️ 이상거래 의심</span> ' : ''}<span class="pill ${req.status}">${req.status}</span> #${req.id} · ${req.email||'-'} · ${req.model_key} · 자가등급 ${req.self_grade}급</span>
         <span class="mono" style="font-size:11px; color:var(--ink-faint);">${fmtTime(req.created_at)}</span>
       </div>
-      <div style="font-size:12px; color:var(--ink-muted); margin-top:6px;">예상가 ${won(req.estimated_price)}${req.final_price?` · 최종가 ${won(req.final_price)} (${req.final_grade}급)`:''}${req.note?` · 메모: ${req.note}`:''}${req.admin_note?` · 관리자메모: ${req.admin_note}`:''}</div>
+      ${req.is_flagged ? `<div class="auth-note" style="color:var(--red);">사유: ${escapeHtml(req.flag_reason||'')}</div>` : ''}
+      <div style="font-size:12px; color:var(--ink-muted); margin-top:6px;">예상가 ${won(req.estimated_price)}${req.final_price?` · 최종가 ${won(req.final_price)} (${req.final_grade}급)`:''}${req.note?` · 메모: ${escapeHtml(req.note)}`:''}${req.admin_note?` · 관리자메모: ${escapeHtml(req.admin_note)}`:''}</div>
       <button class="btn" style="margin-top:8px;" onclick="toggleAdminSellPhotos(${req.id})">📷 사진 보기/추가</button>
       <div id="adminSellPhotoArea-${req.id}"></div>
       <div style="margin-top:8px;">${actions}</div>
@@ -909,7 +986,7 @@ async function loadInventory(){
       <tr><th>모델</th>${GRADE_ORDER.map(g=>`<th>${g}급</th>`).join('')}</tr>
       ${r.inventory.map(m=>`
         <tr>
-          <td>${m.name}<br><span style="color:var(--ink-faint); font-size:10.5px;">${m.code}</span></td>
+          <td>${escapeHtml(m.name)}<br><span style="color:var(--ink-faint); font-size:10.5px;">${escapeHtml(m.code)}</span></td>
           ${GRADE_ORDER.map(g=>{
             const qty = m.stock[g] ?? 0;
             const color = qty===0 ? 'var(--red)' : (qty<=1 ? 'var(--bean)' : 'var(--mint)');
@@ -949,8 +1026,24 @@ async function loadProducts(){
   panel.innerHTML = r.models.map(m=>`
     <div style="padding:14px 0; border-bottom:1px solid var(--border-soft);">
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-        <span>${m.is_active ? '<span class="pill approved">노출중</span>' : '<span class="pill rejected">숨김</span>'} <b>${m.name}</b> <span class="mono" style="color:var(--ink-faint);">${m.code} · 현재 ${won(m.mid)}</span></span>
-        <button class="btn ${m.is_active?'red':'mint'}" onclick="toggleModelActive('${m.key}')">${m.is_active?'숨기기':'노출하기'}</button>
+        <span>${m.is_active ? '<span class="pill approved">노출중</span>' : '<span class="pill rejected">숨김</span>'}${m.is_paused ? ' <span class="pill rejected">⏸ 거래정지</span>' : ''} <b>${escapeHtml(m.name)}</b> <span class="mono" style="color:var(--ink-faint);">${escapeHtml(m.code)} · 현재 ${won(m.mid)}</span></span>
+        <div class="btn-row">
+          <button class="btn ${m.is_active?'red':'mint'}" onclick="toggleModelActive('${m.key}')">${m.is_active?'숨기기':'노출하기'}</button>
+          ${m.is_paused
+            ? `<button class="btn mint" onclick="toggleModelPause('${m.key}', false)">거래 재개</button>`
+            : `<button class="btn red" onclick="toggleModelPause('${m.key}', true)">거래 정지</button>`}
+        </div>
+      </div>
+      ${m.is_paused && m.pause_reason ? `<div class="auth-note" style="color:var(--red);">정지 사유: ${escapeHtml(m.pause_reason)}</div>` : ''}
+      <div class="inline-form">
+        <div class="field-label">상품 사진 — 안 올리면 카테고리 기본 아이콘으로 표시돼요</div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          ${m.has_photo
+            ? `<img src="/api/model-photo/${m.key}?t=${Date.now()}" style="width:56px; height:56px; object-fit:cover; border-radius:10px; border:1px solid var(--border-soft);">`
+            : `<div style="width:56px; height:56px; border-radius:10px; background:var(--bg-input); display:flex; align-items:center; justify-content:center; font-size:20px;">🎧</div>`}
+          <input type="file" accept="image/*" onchange="uploadModelPhoto('${m.key}', this.files[0])">
+          ${m.has_photo ? `<button class="btn red" onclick="deleteModelPhoto('${m.key}')">삭제</button>` : ''}
+        </div>
       </div>
       <div class="inline-form">
         <div class="field-label">판매 시간창(드랍) — 비워두면 언제든 구매 가능</div>
@@ -964,9 +1057,48 @@ async function loadProducts(){
     </div>
   `).join('');
 }
+function adminResizeImageFileGeneric(file, maxDim=800, quality=0.85){
+  return new Promise((resolve, reject)=>{
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = (e)=>{ img.src = e.target.result; };
+    reader.onerror = reject;
+    img.onload = ()=>{
+      let {width, height} = img;
+      if(width > maxDim || height > maxDim){
+        const scale = maxDim / Math.max(width, height);
+        width = Math.round(width*scale); height = Math.round(height*scale);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+async function uploadModelPhoto(key, file){
+  if(!file) return;
+  const dataUrl = await adminResizeImageFileGeneric(file);
+  const r = await api(`/api/admin/models/${key}/photo`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({photo:dataUrl})});
+  if(r){ toast('상품 사진을 저장했어요'); loadProducts(); }
+}
+async function deleteModelPhoto(key){
+  const r = await api(`/api/admin/models/${key}/photo`, {method:'DELETE'});
+  if(r){ toast('상품 사진을 삭제했어요'); loadProducts(); }
+}
 async function toggleModelActive(key){
   const r = await api(`/api/admin/models/${key}/toggle-active`, {method:'POST'});
   if(r){ toast(r.is_active ? '상품을 노출했어요' : '상품을 숨겼어요'); loadProducts(); }
+}
+async function toggleModelPause(key, pausing){
+  let reason = '';
+  if(pausing){
+    reason = prompt('정지 사유를 입력해주세요 (선택, 유저에게 그대로 보여요)') || '';
+  }
+  const r = await api(`/api/admin/models/${key}/toggle-pause`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({reason})});
+  if(r){ toast(r.is_paused ? '거래를 정지했어요' : '거래를 재개했어요'); loadProducts(); }
 }
 async function saveDrop(key){
   const startVal = document.getElementById(`dropstart-${key}`).value;
@@ -1007,7 +1139,7 @@ async function loadPrices(){
   const panel = document.getElementById('pricesPanel');
   panel.innerHTML = Object.entries(r.models).map(([key,m])=>`
     <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; padding:10px 0; border-bottom:1px solid var(--border-soft);">
-      <span>${m.name}<br><span style="color:var(--ink-faint); font-size:10.5px;">${m.code} · 현재 ${won(m.mid)}</span></span>
+      <span>${escapeHtml(m.name)}<br><span style="color:var(--ink-faint); font-size:10.5px;">${escapeHtml(m.code)} · 현재 ${won(m.mid)}</span></span>
       <span class="btn-row">
         <input class="auth-input" style="width:120px; margin-bottom:0;" id="mid-${key}" value="${m.mid}">
         <button class="btn mint" onclick="saveMid('${key}')">차트에 반영</button>
@@ -1029,7 +1161,7 @@ async function loadAnnouncementsAdmin(){
   if(!r || r.announcements.length===0){ panel.innerHTML = '<div class="empty-state">등록된 공지가 없어요</div>'; return; }
   panel.innerHTML = r.announcements.map(a=>`
     <div style="padding:12px 0; border-bottom:1px solid var(--border-soft); display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px;">
-      <span><b>${a.pinned?'📌 ':''}${a.title}</b><br><span style="font-size:12px; color:var(--ink-muted);">${a.body||''}</span></span>
+      <span><b>${a.pinned?'📌 ':''}${escapeHtml(a.title)}</b><br><span style="font-size:12px; color:var(--ink-muted);">${escapeHtml(a.body||'')}</span></span>
       <button class="btn red" onclick="deleteAnnouncement(${a.id})">삭제</button>
     </div>
   `).join('');
@@ -1067,6 +1199,8 @@ const SETTINGS_META = [
   {k:'certificate_fee', l:'정품 인증서 발급비', unit:'원', mult:1, hint:'플러스 회원은 무료'},
   {k:'gift_service_fee', l:'선물하기 서비스료', unit:'원', mult:1, hint:''},
   {k:'referral_bonus_trades', l:'추천인 보너스', unit:'회', mult:1, hint:'추천인·피추천인 각각에게 지급되는 등급용 보너스 거래횟수 (현금 아님, 첫 거래 완료 시 1회만 지급)'},
+  {k:'site_access_fee', l:'사이트 이용료 (월)', unit:'원', mult:1, hint:'무료체험 이후 구매·매입신청 등을 계속 쓰려면 내야 하는 기본 이용료 — 콩나물 플러스와는 별개예요'},
+  {k:'trial_days', l:'무료체험 기간', unit:'일', mult:1, hint:'가입 직후 몇 일 동안 이용료 없이 쓸 수 있는지'},
 ];
 let currentSettings = {};
 async function loadSettings(){
@@ -1129,7 +1263,9 @@ async function saveSettings(){
 // ---------------- 사업자 정보 ----------------
 const BIZ_FIELDS = [
   {k:'company_name', l:'상호명'}, {k:'ceo_name', l:'대표자'}, {k:'biz_reg_no', l:'사업자등록번호'},
-  {k:'mail_order_no', l:'통신판매업 신고번호'}, {k:'address', l:'주소'}, {k:'phone', l:'전화번호'}, {k:'email', l:'이메일'},
+  {k:'mail_order_no', l:'통신판매업 신고번호'}, {k:'address', l:'주소'},
+  {k:'return_address', l:'반품/교환 접수 주소 — 비워두면 일반 주소로 안내돼요'},
+  {k:'phone', l:'전화번호'}, {k:'email', l:'이메일'},
   {k:'admin_notify_emails', l:'운영 알림 받을 이메일 (쉼표로 여러개, 예: a@x.com,b@x.com)'},
   {k:'kakao_channel_url', l:'카카오톡 채널 링크 (예: https://pf.kakao.com/_xxxxx/chat) — 비워두면 고객센터 버튼이 안 보여요'},
 ];
@@ -1161,7 +1297,7 @@ async function loadReviewsAdmin(){
       <span>
         <span style="color:var(--bean);">${'★'.repeat(rv.rating)}${'☆'.repeat(5-rv.rating)}</span>
         <b>${rv.email}</b> · ${rv.model_key} ${rv.grade}급<br>
-        <span style="font-size:12px; color:var(--ink-muted);">${rv.comment||'(코멘트 없음)'}</span>
+        <span style="font-size:12px; color:var(--ink-muted);">${escapeHtml(rv.comment)||'(코멘트 없음)'}</span>
       </span>
       <button class="btn red" onclick="deleteReview(${rv.id})">삭제</button>
     </div>
@@ -1187,6 +1323,56 @@ async function loadAudit(){
 }
 
 // ---------------- 시스템 ----------------
+async function loadAdminsList(){
+  const r = await api('/api/admin/admins');
+  if(!r) return;
+  const panel = document.getElementById('adminsListPanel');
+  panel.innerHTML = r.admins.map(a=>`
+    <div style="display:flex; justify-content:space-between; align-items:center; padding:9px 2px; border-bottom:1px solid var(--border-soft); font-size:12.5px;">
+      <span>${a.is_active ? '<span class="pill approved">활성</span>' : '<span class="pill rejected">비활성</span>'} <b>${escapeHtml(a.username)}</b> <span class="mono" style="color:var(--ink-faint); font-size:11px;">가입 ${fmtTime(a.created_at)}</span></span>
+      <button class="btn ${a.is_active?'red':'mint'}" onclick="toggleAdminActive(${a.id})">${a.is_active?'비활성화':'활성화'}</button>
+    </div>`).join('');
+}
+async function createAdmin(){
+  const username = document.getElementById('newAdminUsername').value.trim();
+  if(!username){ toast('아이디를 입력해주세요'); return; }
+  const r = await api('/api/admin/admins', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({username})});
+  if(r){
+    document.getElementById('newAdminResult').innerHTML = `
+      <div style="background:var(--mint-tint); border:1px solid var(--mint-line); border-radius:10px; padding:10px 12px; margin-top:10px; font-size:12.5px;">
+        ✅ 생성됐어요. <b>이 비밀번호는 지금만 보여요, 꼭 지금 전달해주세요:</b><br>
+        아이디: <span class="mono">${escapeHtml(r.username)}</span> · 비밀번호: <span class="mono">${escapeHtml(r.password)}</span>
+      </div>`;
+    document.getElementById('newAdminUsername').value = '';
+    loadAdminsList();
+  }
+}
+async function toggleAdminActive(id){
+  const r = await api(`/api/admin/admins/${id}/toggle-active`, {method:'POST'});
+  if(r){ toast(r.is_active ? '계정을 활성화했어요' : '계정을 비활성화했어요'); loadAdminsList(); }
+}
+
+async function loadBackups(){
+  const r = await api('/api/admin/backups');
+  if(!r) return;
+  const panel = document.getElementById('backupsPanel');
+  if(r.backups.length === 0){
+    panel.innerHTML = `<div class="empty-state">아직 백업이 없어요 (서버 시작 후 30초 뒤 첫 백업이 자동으로 생겨요)</div>`;
+    return;
+  }
+  panel.innerHTML = `
+    <p class="auth-note" style="margin-bottom:8px;">${r.interval_hours}시간마다 자동 백업 · 최근 ${r.retention_days}일치만 보관돼요</p>
+    ${r.backups.map(b => `
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 2px; border-bottom:1px solid var(--border-soft); font-size:12px;">
+        <span class="mono">${fmtTime(b.created_at)} · ${b.size_kb.toLocaleString('ko-KR')} KB</span>
+        <a class="btn" href="/api/admin/backups/${encodeURIComponent(b.filename)}/download" download>다운로드</a>
+      </div>`).join('')}`;
+}
+async function runBackupNow(){
+  const r = await api('/api/admin/backups/run', {method:'POST'});
+  if(r){ toast('백업을 완료했어요'); loadBackups(); }
+}
+
 async function loadSystemInfo(){
   const r = await api('/api/admin/system-info');
   if(!r) return;
@@ -1200,13 +1386,39 @@ async function loadSystemInfo(){
     ['서버 시작 시각', fmtTime(r.server_started_at)],
     ['현재 상품 수', r.model_count],
     ['현재 가입 유저 수', r.user_count],
+    ['오늘 이메일 발송', `${r.email_today_sent}건 (실패 ${r.email_today_errors}건)`],
+    ['이메일 발송 방식', r.email_provider ? `SMTP: ${r.email_provider}` : 'DEV MODE (콘솔 출력만)'],
   ];
   if(r.old_location_backup_exists){
     rows.push(['⚠️ 구버전 백업 파일', `${r.old_location_path} (앱 폴더 안에 예전 데이터가 남아있어요)`]);
   }
-  panel.innerHTML = rows.map(([l,v])=>`
+  const dbBanner = !r.db_path_explicitly_set ? `
+    <div style="background:var(--bean-tint); border:1px solid var(--bean-line); border-radius:12px; padding:12px 14px; margin-bottom:12px; font-size:12.5px;">
+      ⚠️ <b>AIRMRKT_DB_PATH 환경변수가 설정 안 돼있어요.</b> Render 등 클라우드에 배포하신 경우,
+      Persistent Disk 없이는 재배포할 때마다 이 DB가 통째로 사라질 수 있어요. 로컬 PC에서 직접
+      실행중이면 무시하셔도 돼요. (Render 설정 방법은 이전 안내 참고)
+    </div>` : `
+    <div style="background:var(--mint-tint); border:1px solid var(--mint-line); border-radius:12px; padding:12px 14px; margin-bottom:12px; font-size:12.5px;">
+      ✅ AIRMRKT_DB_PATH가 설정되어 있어요. 이 경로가 실제로 Persistent Disk 위인지만 한 번 더 확인해주세요.
+    </div>`;
+  let emailBanner = '';
+  if(r.email_today_errors > 0){
+    emailBanner = `
+    <div style="background:var(--red-tint); border:1px solid var(--red-line); border-radius:12px; padding:12px 14px; margin-bottom:12px; font-size:12.5px;">
+      🚨 <b>오늘 이메일 발송이 ${r.email_today_errors}건 실패했어요.</b> Gmail 등 개인 계정은 하루 발송량 제한이 있어서
+      그 한도를 넘었을 가능성이 높아요. 가입자가 몰릴 예정이면 SendGrid·Brevo·Resend 같은
+      전용 이메일 발송 서비스로 바꾸는 걸 추천해요 (환경변수 SMTP_HOST/USER/PASS만 바꾸면 돼요).
+    </div>`;
+  } else if(r.email_today_sent >= r.email_warning_threshold){
+    emailBanner = `
+    <div style="background:var(--bean-tint); border:1px solid var(--bean-line); border-radius:12px; padding:12px 14px; margin-bottom:12px; font-size:12.5px;">
+      ⚠️ 오늘 이메일을 이미 ${r.email_today_sent}건 보냈어요. Gmail 개인 계정 기준 발송한도(대략 500건 안팎)에
+      가까워지고 있을 수 있어요. 대량 가입이 예상되면 미리 전용 이메일 서비스로 바꿔두는 걸 추천해요.
+    </div>`;
+  }
+  panel.innerHTML = dbBanner + emailBanner + rows.map(([l,v])=>`
     <div style="display:flex; justify-content:space-between; gap:10px; padding:9px 2px; border-bottom:1px solid var(--border-soft); font-size:12px;">
-      <span style="color:var(--ink-muted); flex:0 0 140px;">${l}</span><span class="mono" style="word-break:break-all; text-align:right;">${v}</span>
+      <span style="color:var(--ink-muted); flex:0 0 140px;">${l}</span><span class="mono" style="word-break:break-all; text-align:right;">${escapeHtml(String(v))}</span>
     </div>`).join('');
 }
 async function tickNow(){
